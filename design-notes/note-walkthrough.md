@@ -1,7 +1,7 @@
 # Schema Language — Note Walkthrough (Result)
 
-Worked output of `handoff-1-note-walkthrough.md`. This takes the working positions from
-the prior schema-language session and pressure-tests them against Hypomnema's `Note` type:
+Worked output of the first Note walkthrough handoff prompt. This takes the working
+positions from the prior schema-language session and pressure-tests them against Hypomnema's `Note` type:
 a full envelope (JSON Schema + presentation hints + routing), a serialized instance with
 its resolved-reference sidecar, and a closing pass that answers the handoff's five
 questions and records every gap surfaced. Where a position survived contact with the
