@@ -174,6 +174,59 @@ MCP is adopted specifically for tool-shaped capabilities (tools, resources, prom
 - Pure schema with no escape hatch ever. Workable, but likely to push extensions toward awkward workarounds when a real case needs custom interaction.
 
 **Open questions surfaced.**
-- The exact schema language (JSON Schema is the obvious starting point but doesn't natively express display semantics; some hint layer is needed).
+- The exact schema language (JSON Schema is the obvious starting point but doesn't natively express display semantics; some hint layer is needed). *Resolved by ADR-013.*
 - The trigger for the escape hatch — when is a type's interaction rich enough to warrant custom code vs. extending the schema language?
 - How escape-hatch renderers are distributed (bundled with the extension, fetched separately, signed?).
+
+---
+
+## ADR-013: Schema language for entity types — JSON Schema + presentation hints + routing envelope
+
+**Decision.** An entity type is declared as a three-part **type envelope**: a standard **JSON Schema** describing structure only, a **sibling presentation-hints object** describing display semantics (every value that points at data is a JSON Pointer, never a field name), and a **routing envelope** wrapping both. This is the concrete schema language ADR-012 deferred. The shape was pressure-tested against two real types — Hypomnema's `Note` and the host's `Context Set` — before being locked here.
+
+The envelope carries: `envelope_version` (the version of the schema-language grammar itself), `type` (a dotted `provider.type` identifier, e.g. `hypomnema.note`, so types never collide across providers), `type_version` (semver of *this type's* declaration), `provider` (which provider owns and serves the type), `custom_renderer`, `schema`, and `presentation`. The two version fields are distinct concerns: `envelope_version` tracks the language, `type_version` tracks the dialect a provider speaks in it.
+
+Instances on the wire are **lean** — `{ type, id, data }` — referencing the once-sent declaration by `type` rather than re-transmitting schema and hints with every entity (the ADR-012 "schema + data, not pre-rendered content" commitment, applied to the instance level).
+
+The **presentation hints** are a fixed, authoritative slot list, exercised across both walkthroughs:
+
+| Slot | Value form | Scope |
+|---|---|---|
+| `title` | JSON Pointer | universal |
+| `summary` | JSON Pointer **or** strategy object | universal |
+| `icon` | abstract name (`file-text`), namespaceable (`octicons:repo`) | universal |
+| `status` | `{ field, variants }` | **typed-meaning providers only** |
+| `card_fields` | `[JSON Pointer]` | universal |
+| `detail_fields` | `[JSON Pointer]` | universal |
+| `references` | `[{ content, resolved_in }]` | universal (empty if no reference-bearing fields) |
+| `external_link` | JSON Pointer **or** strategy object | universal, optional |
+| `content_types` | `[{ field, type }]` | universal, optional (default: plain text) |
+
+Load-bearing properties of the slot list:
+- **Slot values are polymorphic — a JSON Pointer *or* a computed-strategy object** (`{ strategy, source, … }`). Forced by `summary` (Notes have no summary field, so a `{ strategy: "excerpt", source: "/body", max_chars: 200 }` derivation lives in the schema, portable across web/native, rather than in each renderer), and reused by `external_link`.
+- **Slots carry a universal vs. typed-meaning-only scope.** `status` asserts a typed lifecycle the provider vouches for; an open-meaning provider like Hypomnema (which refuses to read frontmatter `status:` as an authoritative enum) declares no `status` slot, and renderers show no status pill for its types. The slot exists for providers that *impose* typed meaning (a future `linear.issue`, a typed `ArchitectureDecision`).
+- **`content_types` and `references` are orthogonal slots, not one.** `content_types` says *how to render a field's text* (markdown / plain / code); `references` says *which markers in a field resolve to entities, and where the resolutions are*. A plain-text field can be reference-bearing; a markdown field need not be. Collapsing them would force a false coupling.
+- **Hints are progressive** — a missing slot falls back to a renderer default; nothing in the hints object is required.
+
+The **`custom_renderer` escape hatch** lives at the envelope level (ADR-012's escape hatch made concrete): `null` means *use the generic schema-driven renderer*, which is the v0 default for every type. A non-null value names a renderer the client may implement; clients that don't implement it fall back to schema-driven rendering, preserving native-client portability.
+
+**Cross-provider references** use a single **universal reference envelope** — the triple `{ provider, type, id, label? }` — wherever one entity points at another. There are *not* separate envelopes for Note references, GitHub repo references, Linear issue references, and so on. `id` is a globally-unique provider URI (e.g. the vault-scoped `hypomnema://localhost/vaults/<uuid>/<path>` form). Type-specific constraints are layered by the *field* that accepts the reference, not by changing the envelope. For body links, a `resolved_reference` (`{ marker, target?, label?, resolved }`) wraps the triple so a **dangling link** can be represented as `{ marker, resolved: false }` with no target — Obsidian parity.
+
+**Query-shaped references** are a distinct membership kind (`kind: "query"`): a stored provider search request plus a `resolves_to` type-intent constraint, resolving to zero-or-more entities at view/serialize time. A query is **not** a standalone `Query` entity in v0 — it has identity only as the member that stores it, and can graduate into a real entity type later if it needs independent lifecycle, sharing, or attachment.
+
+**Icons are an abstraction.** A hint names an *abstract* icon (`file-text`); the host maps abstract names to a concrete library, with **Lucide as the web default**. An extension that needs a specific library uses a **namespaced** form (`octicons:repo`) — the documented escape hatch for domain-specific iconography.
+
+**Rationale.** Keeping hints in a *sibling* object rather than as `x-` keywords inside the schema keeps the JSON Schema a clean, standard, independently-validatable artifact — the schema validates structure, the hints layer display, and neither contaminates the other. The three-part split absorbed two genuinely different types (an open-meaning vault Note with a markdown body and a resolution sidecar; a host-native heterogeneous collection with query-shaped membership) without contortion. One universal reference envelope keeps the entity graph walkable and resolver/renderer dispatch uniform (dispatch through `provider` + `type`, then look up that type's declaration). This decision is the entity-type instance of ADR-003's typed-context-entity / provider-registry pattern (the reference triple is what makes Note→Vault graph-walkable), it resolves ADR-010's open question of how the schema language interacts with the JSON-RPC host↔extension envelope (the type envelope rides inside it), and it is the concrete schema language ADR-012's schema-driven rendering presupposed.
+
+**Ruled out.**
+- `x-` keywords inside the JSON Schema. Couples display semantics to structure and forfeits clean, standard validation of the structural artifact.
+- Per-provider / per-kind reference envelopes. More surface to maintain and breaks uniform dispatch; the single triple subsumes them.
+- A standalone `Query` entity in v0. Query-shaped membership needs no independent identity yet; promoting it now would invent lifecycle and permissions surface before any need exists.
+- Inventing a `summary` field on field-less types, or pushing summary/derivation logic into every client. The strategy-object slot form keeps the derivation rule in the schema, portable across clients.
+
+**Open questions surfaced.**
+- Temporal-field semantics — `created`/`modified` ride in `card_fields`/`detail_fields` as bare pointers, so a renderer can't tell they deserve relative-time display ("3 days ago"). A per-field `format` hint or a `timestamps` slot would fix it; not adopted yet.
+- Field labeling — `card_fields`/`detail_fields` are bare pointers with no human label, which gets awkward for `/frontmatter/some_key`. A `{ field, label }` form may be needed later.
+- Whether `resolved_reference` is the universal shape with the plain triple as its degenerate (always-resolved) case, or whether the two stay distinct.
+- The canonical `hypomnema://` URI form is provisional — explicit vs. empty authority, the ignored `:name` debug suffix, and remote-host handling all need settling when Hypomnema links are designed.
+- Prompt-serialization, expansion-depth, and cache-invalidation policy for resolved query members — deferred to transclusion design (see `design-notes/transclusion-notes.md`).

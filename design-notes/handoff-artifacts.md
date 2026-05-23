@@ -10,7 +10,7 @@ Relevant project files:
 - `architecture-decisions.md` — ADR-003 (typed context entities), ADR-010 (host-mediated extension surface), ADR-013 (schema language, once it lands)
 - `open-questions.md` — should grow an entry for "read/write artifacts" when this is flagged
 - `overview.md` — Hypomnema glossary entry; Hypomnema going read/write is part of the motivating context
-- `design-notes/handoff-3-adr-and-doc-updates.md` — describes the doc-update session that should produce ADR-013
+- `design-notes/note-walkthrough.md`, `design-notes/context-set-walkthrough.md` — the schema-language walkthroughs that produced ADR-013
 
 ## Motivating concerns
 

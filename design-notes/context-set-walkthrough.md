@@ -5,7 +5,7 @@ Note walkthrough's envelope and reference triple, then pressure-tests the shape 
 host-native collection with heterogeneous membership and a Hypomnema vault-slice stored as
 a query-shaped reference.
 
-This document is an input to `handoff-3` (ADR-013 and document updates). It locks the
+This document is an input to the ADR-013 / document-update work. It locks the
 working shape for universal entity references, query-shaped membership references, and
 heterogeneous member rendering.
 
