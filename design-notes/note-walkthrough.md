@@ -7,7 +7,7 @@ its resolved-reference sidecar, and a closing pass that answers the handoff's fi
 questions and records every gap surfaced. Where a position survived contact with the
 concrete type it's kept; where it bent, the bend is called out in §6.
 
-This document is an input to `handoff-2` (Project + vault-slice) and `handoff-3` (ADR-013).
+This document is an input to `context-set-walkthrough` and `handoff-3` (ADR-013).
 The reference triple (§2) and lean-instance shape (§5) are written so those sessions can
 pick them up directly.
 

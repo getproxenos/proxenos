@@ -48,7 +48,7 @@ A hybrid of Options 1 and 2:
 ## Prerequisites
 
 - ADR-013 (schema language) should be in place. Artifact capability declarations live in the envelope.
-- The Project primitive walkthrough should be done — there's likely overlap with project-scoped artifact defaults.
+- The Context Set walkthrough should be done — there's likely overlap with context-set-scoped artifact defaults.
 - Hypomnema's read/write story should be at least roughed in (even if not fully implemented) so the artifact-target case for Notes is concrete enough to reason about.
 
 ## Goal of the dedicated session

@@ -2,9 +2,9 @@
 
 ## Context
 
-Third and final follow-up. With the Note and Project walkthroughs complete, the schema language is ready to be formalized as an ADR and the project documents updated.
+Third and final follow-up. With the Note and Context Set walkthroughs complete, the schema language is ready to be formalized as an ADR and the project documents updated.
 
-**Prerequisites:** both prior walkthroughs (Note + Project/vault-slice) should be complete. Their resulting envelopes are inputs to this session.
+**Prerequisites:** both prior walkthroughs (Note + Context Set/vault-slice) should be complete. Their resulting envelopes are inputs to this session.
 
 Relevant project files:
 - `architecture-decisions.md` — add ADR-013 here
