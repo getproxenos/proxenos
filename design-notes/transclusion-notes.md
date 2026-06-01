@@ -48,7 +48,9 @@ Three concrete sites where transclusion shows up, all already in the design:
 - **Prompt-budget integration.** Expansion competes for context window. This is the same
   knob as the "(c) hybrid" size threshold in the *attached entity serialization* open question
   — small entities inline, large ones expand to summary or stay a tool-call-fetchable pill.
-  The two questions should be designed together, not separately.
+  ADR-016 now fixes the budget hook: transcluded content is admitted through the Context
+  Budget Planner as an attached-entity render mode. The remaining transclusion question is
+  depth/shape/cache policy, not whether expansion participates in the prompt budget.
 - **Wire-protocol + pipeline impact.** Does the host pre-expand and ship expanded content, or
   ship lean references (ADR-013) and let the client/serializer expand on demand? Lean-by-default
   fits ADR-012's "schema + data, not pre-rendered content," but the response pipeline needs a

@@ -10,19 +10,21 @@ Format is intentionally loose. Date entries when they're adopted; mark supersede
 
 **Decision.** The server is the source of truth for thread and message state. Assistant message generation writes to durable storage as tokens stream, not just to the websocket. Clients are subscribers, not owners. Disconnects do not lose responses; reconnects resume from a cursor.
 
-**Rationale.** This is the dominant pattern across serious AI chat products (ChatGPT, Claude.ai, modern Vercel AI SDK patterns) because it solves several problems at once: offline tolerance, multi-device sync, background generation, parallel monitoring. The opposite pattern — client-authoritative state, server-streams-to-websocket-and-forgets — is what Iris does today and is the direct source of the persistence bugs motivating this work.
+**Rationale.** This is the dominant pattern across serious AI chat products (ChatGPT, Claude.ai, modern Vercel AI SDK patterns) because it solves several problems at once: offline tolerance, multi-device sync, background generation, parallel monitoring. The opposite pattern — client-authoritative state, server-streams-to-websocket-and-forgets — fails on disconnect and blocks multi-device use. Iris is no longer evidence against this direction: its current code is server-authoritative with Redis replay and final Postgres aggregates, which validates the general shape while leaving this design's fuller event-sourcing choice to ADR-004.
 
 **Ruled out.**
-- Client-persisted state (Iris's current model). Fails on disconnect; blocks multi-device.
+- Client-persisted state. Fails on disconnect; blocks multi-device. Iris is no longer an example of this failure mode, but the failure mode remains the one ADR-001 avoids.
 - Server-state-without-resumability. Cheaper to build but loses the "ask a question, walk away, come back to the answer" UX, which is one of the main motivating use cases.
 
 ---
 
 ## ADR-002: ExternalStoreRuntime as the frontend integration shape
 
-**Decision.** The frontend uses assistant-ui's `ExternalStoreRuntime` pattern, where message state lives in a store outside the runtime and the runtime is a view onto it. The store is populated by a server subscription (websocket or SSE).
+**Decision.** The frontend uses assistant-ui's `ExternalStoreRuntime` pattern, where message state lives in a store outside the runtime and the runtime is a view onto it. The store is populated by a server subscription (websocket or SSE) plus cursor-based replay from ADR-004. See `design-notes/streaming-runtime-notes.md`.
 
-**Rationale.** This is the runtime shape that lets server-authoritative state flow naturally. `LocalRuntime` would put the frontend back in charge of state, defeating the point. `DataStream` would tie the backend to the Vercel AI SDK wire format. `ExternalStoreRuntime` imposes no wire protocol — the backend can be anything that can populate the store. That freedom matters given the open backend-language question.
+**Rationale.** This is the runtime shape that lets server-authoritative state flow naturally. `LocalRuntime` would put the frontend back in charge of state, defeating the point. `DataStream` would tie the backend to the Vercel AI SDK wire format. `ExternalStoreRuntime` imposes no wire protocol — the backend can be anything that can populate the store. That freedom matters given the Symfony core and event-log protocol decisions.
+
+assistant-ui provides the runtime and UI affordance layer; it does not replace the host-owned streaming store. The application still owns live subscription, event normalization, idempotent folding, replay/resume, cancellation commands, branch state, and side-payload fetches.
 
 **Ruled out.**
 - `LocalRuntime` (frontend owns state). Wrong direction.
@@ -47,12 +49,18 @@ This decision is the entity-type instance of the broader host-mediated extension
 
 ## ADR-004: Event-sourced persistence; the event log is the wire protocol
 
-**Decision.** Thread state is persisted as an ordered event log per thread. Events have monotonic sequence numbers per thread. Clients subscribe by cursor; reconnect by cursor. Current message state is a fold over the event log.
+**Decision.** Thread state is persisted as an ordered, durable event log per thread. Events have monotonic sequence numbers per thread. Clients subscribe by cursor; reconnect by cursor. Current message state, turn status, tool-call state, citations, artifacts, and connector delivery status are projections over the event log.
 
-**Rationale.** The events streamed to clients and the events persisted to the database are the same events. This unifies resumability and audit-trail concerns into one design instead of two. Familiar territory given prior event-sourcing experience. Implementation can start with Postgres plus `LISTEN/NOTIFY` (or simple polling) and graduate to Redis Streams later if fan-out demands it.
+Canonical means the durable Postgres event log is the source of truth, not a short-lived transport buffer and not the folded message rows. Projections exist for efficient reads and search, but they are rebuildable. Redis-shaped storage, if introduced, is a live-delivery optimization only: a tail cache / replay buffer populated from committed events, never the system of record. See `design-notes/event-sourced-conversations.md`.
+
+**Rationale.** The events streamed to clients and the events persisted to the database are the same logical events. This unifies resumability, audit trail, connector delivery, and "conversation as referenceable entity" concerns into one design instead of two. Iris validates the reconnect-by-sequence pattern, but takes a more conservative storage position: Redis keeps 600 seconds of wire replay and Postgres keeps final aggregates. This design deliberately takes the fuller event-sourcing branch because referenceable conversations, rebuildable projections, branch/retry history, and extension-visible stream events all benefit from one durable source.
+
+Implementation starts with Postgres as both event store and replay source, using polling or `LISTEN/NOTIFY` for live wakeups. Redis Streams or another broker can be added later for fan-out/backpressure, but only after the write path commits to Postgres.
 
 **Ruled out.**
 - Snapshot-only persistence. Loses the streaming reconstruction story.
+- Redis as canonical event store. Good live replay buffer; wrong durability, backup, query, and archival posture for core state.
+- Iris-style "TTL replay plus final aggregate" as the core model. It is a proven simpler point, but it leaves conversation history, branch/retry semantics, and future conversation-as-entity work dependent on lossy aggregates.
 - CRDT-based state. Overkill for single-author messages; reconsider only if collaborative editing of messages becomes a feature.
 
 ---
@@ -114,7 +122,9 @@ This decision is the entity-type instance of the broader host-mediated extension
 
 **Decision.** The frontend builds on assistant-ui's primitives (Thread, Message, Composer, ThreadList, ActionBar) and uses its shadcn-themed components as the styling baseline. AI Elements may be mixed in for specific renderers where useful, but the runtime layer is assistant-ui's.
 
-**Rationale.** assistant-ui solves the boring-but-load-bearing chat UI problems (streaming, virtualized message lists, attachments, branching, code blocks, accessibility) that are not worth reinventing. The runtime abstraction is the right shape (see ADR-002). Composability with shadcn means UI design stays unconstrained.
+**Rationale.** assistant-ui solves the boring-but-load-bearing chat UI problems (streaming display, message lists, attachments, branching UI, code blocks, accessibility) that are not worth reinventing. The runtime abstraction is the right shape (see ADR-002). Composability with shadcn means UI design stays unconstrained.
+
+Iris shows the cost of building this layer by hand: reducer/recovery/channel hooks plus custom composer, message list, tool display, retry, and fork behavior. The useful lesson to keep is not the custom component stack, but the reconciliation test cases. assistant-ui owns the chat runtime surface; the host store still owns event-log reconciliation. See `design-notes/streaming-runtime-notes.md`.
 
 **Ruled out.**
 - Building chat primitives from scratch. Months of work for no differentiation.
@@ -131,13 +141,15 @@ This decision is the entity-type instance of the broader host-mediated extension
 
 MCP is adopted specifically for tool-shaped capabilities (tools, resources, prompts). The broader extension primitives — entity declarations, suggestions, pipeline hooks, UI affordances — layer alongside MCP using the same wire shape (JSON-RPC over a transport) with additional message types. The boundary between "what's MCP" and "what's our own primitives" is functional: MCP where it fits, our own where it doesn't.
 
+Transport connectors are one concrete primitive in this surface. A connector is an out-of-process transport adapter that declares ingress and delivery capabilities, submits normalized inbound messages, and subscribes to host-owned stream events for delivery. Identity resolution stays in the host: connectors may report transport identity claims, but the host maps those claims to users, tenants, permissions, and conversation visibility. The gateway owns request construction, durable message/event persistence, response-pipeline execution, cancellation state, and recording; the connector owns transport parsing, transport auth/signature checks, delivery formatting, rate limits, and acknowledgements. See `design-notes/connector-primitive-notes.md`.
+
 **Ruled out.**
 - In-host plugin model (extensions loaded into the host's process). Couples extensions to host internals; defeats native-client portability; makes trust tiering hard; recreates exactly the Iris pain this project is trying to escape.
 - Per-surface extension APIs (a separate "suggestion plugin" API, a separate "UI plugin" API, and so on). More surface area to maintain; loses the unifying pattern.
 - ACP as the wire protocol. Its primitives are editor-shaped (files, terminals, diffs) and don't fit. Its design informed this decision but the protocol itself isn't adopted.
 
 **Open questions surfaced.**
-- The exact wire-level message types for the non-MCP primitives.
+- The exact wire-level message types for the remaining non-MCP primitives; the connector primitive's v0 shape is sketched in `design-notes/connector-primitive-notes.md`.
 - How the schema language for entity types interacts with the JSON-RPC envelope (probably JSON Schema, but worth confirming).
 - Whether extension discovery is registry-based, filesystem-based, Compose-label-based, or some combination.
 - How the host enforces trust tiers in practice (per-extension capability grants, signed manifests, both, neither for v0).
@@ -182,7 +194,7 @@ MCP is adopted specifically for tool-shaped capabilities (tools, resources, prom
 
 ## ADR-013: Schema language for entity types — JSON Schema + presentation hints + routing envelope
 
-**Decision.** An entity type is declared as a three-part **type envelope**: a standard **JSON Schema** describing structure only, a **sibling presentation-hints object** describing display semantics (every value that points at data is a JSON Pointer, never a field name), and a **routing envelope** wrapping both. This is the concrete schema language ADR-012 deferred. The shape was pressure-tested against two real types — Hypomnema's `Note` and the host's `Context Set` — before being locked here.
+**Decision.** An entity type is declared as a three-part **type envelope**: a standard **JSON Schema** describing structure only, a **sibling presentation-hints object** describing display semantics (every value that points at data is a JSON Pointer, never a field name), and a **routing envelope** wrapping both. This is the concrete schema language ADR-012 deferred. The shape was pressure-tested against Hypomnema's `Note`, the host's `Context Set`, and Iris-style memory primitives (`Memory`, `Truth`, `TruthConflict`, `ConversationSummary`) before being locked here.
 
 The envelope carries: `envelope_version` (the version of the schema-language grammar itself), `type` (a dotted `provider.type` identifier, e.g. `hypomnema.note`, so types never collide across providers), `type_version` (semver of *this type's* declaration), `provider` (which provider owns and serves the type), `custom_renderer`, `schema`, and `presentation`. The two version fields are distinct concerns: `envelope_version` tracks the language, `type_version` tracks the dialect a provider speaks in it.
 
@@ -230,3 +242,80 @@ The **`custom_renderer` escape hatch** lives at the envelope level (ADR-012's es
 - Whether `resolved_reference` is the universal shape with the plain triple as its degenerate (always-resolved) case, or whether the two stay distinct.
 - The canonical `hypomnema://` URI form is provisional — explicit vs. empty authority, the ignored `:name` debug suffix, and remote-host handling all need settling when Hypomnema links are designed.
 - Prompt-serialization, expansion-depth, and cache-invalidation policy for resolved query members — deferred to transclusion design (see `design-notes/transclusion-notes.md`).
+- Memory lifecycle and recall policy — Iris-style promotion from Memory to Truth, truth crystallization, conflict handling, pinned-truth recall, and prompt section ordering all fit around ADR-013 entities but are not presentation concerns. They should be expressed through extension augmentations / prompt serialization hooks, not schema fields. See `design-notes/memory-primitives-walkthrough.md`.
+- Relationship field constraints — the universal reference triple still holds for memory->truth and summary-chain relationships, but schemas need a standard way to declare that a given reference field accepts only selected target types (for example `iris.truth.source_memories[]` accepts `iris.memory`). This may be a schema annotation or sibling hint rather than a new reference envelope.
+
+---
+
+## ADR-014: Operation Registry for internal model orchestration
+
+**Decision.** Internal model-adjacent work is declared through a first-class **Operation Registry**. Each operation has a provider-owned dotted id (`core.chat.respond`, `core.memory.extract`, `hypomnema.context.retrieve`), input/output schemas, model-profile requirements, prompt/rendering strategy, context requirements, scheduling, retry/rate-limit policy, budget, side-effect declaration, and token-accounting policy. The core registers built-in operations. Extensions may register operations during ADR-010 capability negotiation, but only for granted hook points and only after host validation. The host pipeline invokes operations; extensions do not get arbitrary ambient access to host state.
+
+See `design-notes/operation-registry.md` for the declaration envelope and examples.
+
+**Rationale.** ADR-008 commits to multi-model orchestration behind one logical assistant, but "many model calls" needs a control plane before extensions enter the picture. Iris validates the operational need: distinct calls for chat, extraction, summarization, recall, consolidation, embeddings, heartbeat, brief generation, and similar work, each with its own config, job shape, retry behavior, and token usage source. Iris keeps this as an in-process convention — config key + service + queued job + `TokenUsageSource` enum — which is fine at one-developer scale but does not cross an extension boundary cleanly.
+
+The registry keeps the useful parts: named operations, per-operation model choice, explicit retry/rate-limit behavior, and per-operation token accounting. It changes the registration dimension: operations become declared capabilities the host can validate, compose, schedule, observe, and revoke. Model selection uses host-owned model profiles (`chat.frontier`, `reasoning.medium`, `reasoning.fast`, `embedding.text`) that tenant/admin policy resolves to concrete provider/model/version values, so declarations stay stable while model choices evolve.
+
+**Ruled out.**
+- Iris-style ad-hoc convention as the core design. Works in-process, but makes extension-owned operations, host policy enforcement, and uniform accounting too implicit.
+- Full agent graph as the base abstraction. Useful later for autonomous work, but too heavy for ordinary pipeline steps like thread naming or memory extraction.
+- A tiny model-call helper keyed only by operation name. Captures model selection but misses retry, scheduling, context grants, side effects, and token accounting — the parts that matter operationally.
+- Letting extensions choose concrete models directly. Breaks tenant policy, cost control, and future provider migration. Extensions request capabilities/model profiles; the host resolves them.
+
+**Open questions surfaced.**
+- The exact v0 hook-point vocabulary (`turn.completed`, `context.retrieve`, `response.generate`, `suggestions.rank`, etc.).
+- Whether long-running agent work (`core.subagent.run`) stays in this registry with a different scheduling mode or graduates to a separate agent-run primitive.
+- How much of the operation registry is exposed in admin/debug UI at v0 versus only recorded in logs and usage tables.
+
+---
+
+## ADR-015: Skills are content packages, not a first-class extension primitive
+
+**Decision.** Skills (Anthropic/skills.sh-style `SKILL.md` packages) are treated as content packages that the host catalogs and pins to threads, not as a new peer primitive alongside entity declarations, prompts, tools, connectors, or operations. Extensions may ship skill packages. The host parses and validates their metadata, records source/provider/version/hash, controls visibility and trust, exposes available skills through host-owned prompt declarations, and injects pinned skill content through the normal prompt assembly path. Activating a skill creates a thread-scoped pin to a skill package/version.
+
+See `design-notes/skills-content-extensions.md` for the catalog shape and multi-user implications.
+
+**Rationale.** Iris validates the simpler branch: skills are loaded from `SKILL.md` files, advertised in a prompt, activated via a tool, pinned by thread, and injected into future system context. That works because skills are instructions plus metadata; their behavior is carried by existing tools, prompts, and thread state. Making skills a full extension primitive would duplicate ADR-010 machinery without adding a distinct runtime capability.
+
+The part that does not generalize from Iris is an unscoped global filesystem scan. For multi-user, skills need host-owned cataloging with source scope, visibility, version, source URI, and content hash. A configured local directory is acceptable for the personal v0, but it should feed the same catalog shape that extension-declared skills use later.
+
+**Ruled out.**
+- A remote skill marketplace/registry in v0. Distribution, signing, reviews, and update policy are premature; a host-local catalog is enough.
+- Treating skills as MCP tools. A skill may mention allowed or expected tools, but tool grants remain host policy.
+- Treating skills as context entities. They are not domain objects the user is grounding a conversation in; they are instruction packages that affect model behavior.
+
+**Open questions surfaced.**
+- Exact skill id/version semantics when a local `SKILL.md` changes after being pinned to an existing thread.
+- Whether user-authored ad-hoc skills need an editing UI or can stay filesystem/config driven through v0.
+- How pinned skill content participates in cache-breakpoint allocation once prompt assembly budgets are implemented.
+
+---
+
+## ADR-016: Context Budget Planner for prompt admission and compaction
+
+**Decision.** Every model request is assembled through a host-owned **Context Budget Planner**. The planner starts from the operation's context window and reserved completion/headroom, accounts for fixed prompt/tool/schema costs, then admits conversation history, summaries, attached entities, transclusions, and retrieved context by classed budget policy. Prompt renderers and extensions receive explicit per-render budgets; they do not decide the global prompt shape.
+
+See `design-notes/context-window-management.md` for the budget plan shape, admission order, pruning modes, entity render modes, compaction triggers, and safety-net behavior.
+
+The planner treats context as degradable before it is droppable. Recent turns are protected from aggressive pruning but still capped per item. Older turns degrade to tool previews or summaries. Attached entities degrade from `full` to `summary` to `reference` or `fetchable` rather than being blindly injected. Query-shaped Context Set members and transcluded references have their own result-count, depth, and token caps.
+
+Conversation compaction is an operation (`core.conversation.summarize`) run asynchronously after turns when token pressure or unsummarized-turn accumulation crosses policy thresholds. The request path has a bounded synchronous safety net: if budgeted history loading would exclude too much unsummarized material, it may run one locked, timed compaction attempt before sending the chat request. If that attempt fails, the request continues with degraded context and an omission record rather than blocking indefinitely.
+
+**Rationale.** Context-window pressure is a first-class design concern in this product because context is not only transcript text. Typed entities, Context Sets, query results, transcluded notes, tool output, prompt declarations, and provider schemas all compete for the same model window. A central planner is the only place with enough visibility to make coherent tradeoffs.
+
+Iris validates the operational pattern: token budgeting, bounded history loading, protected recent turns, heavier pruning for older tool output, async summarization, and a sync safety net when summarization falls behind. This design adopts the pattern but changes the object being budgeted. Instead of only chat rows and tool output, the planner budgets typed entities and extension-rendered prompts as first-class participants.
+
+The planner also creates debuggability. Each request can record what was admitted, degraded, omitted, estimated, measured, and summarized. That makes "the assistant forgot this" diagnosable as either model behavior or prompt-admission policy.
+
+**Ruled out.**
+- Directly injecting all attached context. Fails as soon as a user pins a large note, Context Set, or conversation export.
+- Oldest-history-until-budget-exhausted. Preserves stale transcript at the expense of explicit attachments and current task context.
+- Summarization-only compaction. Summaries help, but tool output, entity expansion, query results, and transclusion need separate pruning/degradation policies.
+- Renderer-owned budgeting. Extensions can estimate and respect local budgets, but only the host can coordinate across prompts, tools, history, and entities.
+- Dropping oldest material silently. Sometimes necessary, but omissions must be recorded and, where useful, surfaced to the model.
+
+**Open questions surfaced.**
+- Default token allocation ratios for v0 need real prompts and provider windows.
+- The exact `context.fetch` tool/operation ergonomics for fetchable large entities remain to be designed.
+- Transclusion still needs its own ADR for depth, shape, and cache invalidation; ADR-016 only fixes how transcluded content participates in the budget.

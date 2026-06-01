@@ -14,8 +14,8 @@ ADR-003 (provider registry), ADR-013 (entity type declarations, universal refere
 
 ADR-013 deliberately keeps provider-specific **actions, summaries, suggestions, and lifecycle
 hooks** *out* of a primitive's schema. The `core.context_set` schema describes structure and
-display; it says nothing about "summarize this set," "suggest a member," or "an extension wants
-to add a "Open in Foo" action." Those are augmentations, and they need a registration surface.
+display; it says nothing about "summarize this set," "suggest a member," or "add an Open in
+Foo action." Those are augmentations, and they need a registration surface.
 
 This is the entity-augmentation slice of ADR-010's broader extension model. The likely shape is
 a **pipeline-hook subcategory**: extensions declare intent ("I provide a summary for type X",
@@ -33,7 +33,10 @@ surfaces — the same host-mediated principle as everywhere else.
 - **Augmentation kinds.** At least: **actions** (a button/command against an instance),
   **summaries** (provider-computed text/structured summary, distinct from the schema's
   `summary` slot), **suggestions** (proposals to attach/relate), **lifecycle hooks**
-  (on-attach, on-resolve, on-serialize). Each may need a different host surface.
+  (on-attach, on-resolve, on-serialize), and **memory lifecycle hooks** surfaced by the
+  Iris memory walkthrough: recall ranking, prompt serialization, memory->truth promotion,
+  truth crystallization, conflict detection/resolution, and consolidation. Each may need a
+  different host surface.
 - **Targeting.** Augmentations against a *type* (all Notes), a *provider*, a *primitive*
   (Context Set as a whole), or a specific *instance*. Probably type- and primitive-level in v0.
 - **Trust + ordering.** Multiple extensions augmenting the same type — who wins, what order do
