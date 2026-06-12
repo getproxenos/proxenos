@@ -33,10 +33,15 @@ surfaces — the same host-mediated principle as everywhere else.
 - **Augmentation kinds.** At least: **actions** (a button/command against an instance),
   **summaries** (provider-computed text/structured summary, distinct from the schema's
   `summary` slot), **suggestions** (proposals to attach/relate), **lifecycle hooks**
-  (on-attach, on-resolve, on-serialize), and **memory lifecycle hooks** surfaced by the
+  (on-attach, on-resolve, on-serialize), **memory lifecycle hooks** surfaced by the
   Iris memory walkthrough: recall ranking, prompt serialization, memory->truth promotion,
-  truth crystallization, conflict detection/resolution, and consolidation. Each may need a
-  different host surface.
+  truth crystallization, conflict detection/resolution, and consolidation, and
+  **artifact-target** defaults (named by ADR-017): a primitive — typically a Context Set
+  attached to the conversation — supplying the default create-target for
+  conversation-written artifacts ("new artifacts from conversations grounded in this set
+  go to Hypomnema vault X, folder /Decisions"). It supplies a default; it does not bypass
+  the capability model — the named target must still be a live create capability. Each may
+  need a different host surface.
 - **Targeting.** Augmentations against a *type* (all Notes), a *provider*, a *primitive*
   (Context Set as a whole), or a specific *instance*. Probably type- and primitive-level in v0.
 - **Trust + ordering.** Multiple extensions augmenting the same type — who wins, what order do
@@ -57,6 +62,8 @@ Hypomnema *and* could be a Conversation via a dedicated provider — same bytes,
 
 ## 4. Design-with-in-mind
 
-Per the walkthrough, the augmentation surface should be designed with the **future
-artifact-default work** in mind (read/write artifacts — see `handoff-artifacts.md`), so the hook
-shape doesn't have to be reworked when artifacts land.
+The **artifact-default work** that this surface was told to anticipate has landed: ADR-017
+(read/write artifacts — see `design-notes/artifact-capabilities-walkthrough.md`) defines an
+**artifact-target** augmentation kind (added to §2). The registration shape settled here must
+therefore be able to carry a per-primitive default create-target, not just actions/summaries/
+suggestions — so the hook shape doesn't have to be reworked now that artifacts have landed.
