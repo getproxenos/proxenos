@@ -50,7 +50,7 @@
               curl
               pcntl
               posix
-              opcache
+              #opcache # built-in
               xdebug
             ]);
 
