@@ -1,0 +1,58 @@
+# =============================================================================
+# .dockerignore — bug-free-happiness
+# =============================================================================
+# Keep the COPY . build context small and free of secrets/generated artifacts.
+
+# Dependencies / generated (reinstalled or regenerated inside the image)
+/vendor/
+/var/
+
+# Docker tooling + host orchestration (not needed in the image)
+/docker/
+docker-bake.hcl
+Makefile
+
+# Version control / CI / editor / OS noise
+/.git/
+/.gitignore
+/.gitattributes
+/.github/
+/.idea/
+/.vscode/
+/.claude/
+/.direnv/
+/.envrc
+*.swp
+.DS_Store
+
+# Nix dev shell
+/flake.nix
+/flake.lock
+
+# Local env overrides — never bake into an image
+/.env.local
+/.env.*.local
+
+# Compose overlays (used outside the image)
+/compose.*.yaml
+
+# PHP tooling caches
+/.phpunit.cache/
+/.php-cs-fixer.cache
+
+# Frontend (built into public/ by the asset build; node_modules never in the image)
+/frontend/node_modules/
+/frontend/dist/
+
+# Python venv for Markdown tooling (mdformat)
+/.venv/
+/.ruff_cache/
+
+# Planning docs — not part of the runtime image
+/current-handoffs/
+/design-notes/
+/handoffs/
+/reference/
+/architecture-decisions.md
+/open-questions.md
+/overview.md

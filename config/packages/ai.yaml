@@ -1,0 +1,25 @@
+# symfony/ai wiring (ADR-019). Platform component ONLY — no Chat (conversation
+# stays host-owned/event-sourced, ADR-004), no Store, no Agent.
+#
+# One generic, OpenAI-compatible Platform is the v0 default. Because exactly one
+# platform is configured, the bundle aliases Symfony\AI\Platform\PlatformInterface
+# to it, so App\Client\Llm\LlmClient autowires the Platform directly.
+#
+# base_url/api_key come from LLM_BASE_URL/LLM_API_KEY (empty by default, which
+# leaves the client "unconfigured" — LlmConfig::isConfigured() === false). Point
+# LLM_BASE_URL at any OpenAI-compatible endpoint: a local Ollama (/v1) for a
+# key-free smoke test, or a hosted provider with LLM_API_KEY set. Model ids are
+# passed per-call by the adapter from LlmConfig, not declared here.
+#
+# The host-owned model-profile resolver (chat.frontier, embedding.text, …) and
+# additional bridges (Anthropic, etc.) land with the 0.3 turn loop (ADR-014/019).
+#
+# model_catalog: the bridge's FallbackModelCatalog (wired in services.yaml) routes
+# a model id to a chat vs embeddings model by convention (embedding ids contain "embed").
+ai:
+    platform:
+        generic:
+            default:
+                base_url: '%env(LLM_BASE_URL)%'
+                api_key: '%env(LLM_API_KEY)%'
+                model_catalog: 'Symfony\AI\Platform\Bridge\Generic\FallbackModelCatalog'

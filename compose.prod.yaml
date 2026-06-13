@@ -1,0 +1,32 @@
+# =============================================================================
+# compose.prod.yaml — prod overlay
+# =============================================================================
+# Usage: docker compose -f compose.common.yaml -f compose.prod.yaml up -d
+#
+# The deploy environment (Coolify secrets / real env) must provide: APP_IMAGE +
+# WORKER_IMAGE (published GHCR refs), APP_SECRET, a strong MERCURE_JWT_SECRET,
+# DATABASE_URL (or POSTGRES_* for the bundled db), and the LLM_* vars. Those flow
+# through the compose.common `x-app-env` passthroughs.
+
+services:
+  app:
+    image: "${APP_IMAGE:?set APP_IMAGE to the published GHCR app image}"
+    environment:
+      APP_ENV: prod
+      APP_SECRET: "${APP_SECRET:?set APP_SECRET}"
+      SSL_MODE: "${SSL_MODE:-full}"
+  worker:
+    image: "${WORKER_IMAGE:?set WORKER_IMAGE to the published GHCR worker image}"
+    environment:
+      APP_ENV: prod
+      APP_SECRET: "${APP_SECRET:?set APP_SECRET}"
+  scheduler:
+    image: "${WORKER_IMAGE:?set WORKER_IMAGE to the published GHCR worker image}"
+    environment:
+      APP_ENV: prod
+      APP_SECRET: "${APP_SECRET:?set APP_SECRET}"
+  reactor:
+    image: "${WORKER_IMAGE:?set WORKER_IMAGE to the published GHCR worker image}"
+    environment:
+      APP_ENV: prod
+      APP_SECRET: "${APP_SECRET:?set APP_SECRET}"

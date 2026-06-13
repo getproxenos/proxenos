@@ -1,0 +1,44 @@
+doctrine:
+    dbal:
+        url: '%env(resolve:DATABASE_URL)%'
+        # UUIDv7 surrogate ids (ADR-007; entities land in 0.1) map through the
+        # symfony/doctrine-bridge `uuid` type. pgvector lives in the DB image
+        # (pgvector/pgvector:pg16); the `vector` Doctrine type is wired later when
+        # the Store/embeddings work lands (deferred in Phase 0).
+        types:
+            uuid: Symfony\Bridge\Doctrine\Types\UuidType
+        profiling_collect_backtrace: '%kernel.debug%'
+    orm:
+        default_entity_manager: default
+        entity_managers:
+            default:
+                naming_strategy: doctrine.orm.naming_strategy.underscore_number_aware
+                auto_mapping: true
+                validate_xml_mapping: true
+                mappings:
+                    App:
+                        type: attribute
+                        is_bundle: false
+                        dir: '%kernel.project_dir%/src/Entity'
+                        prefix: 'App\Entity'
+                        alias: App
+
+when@prod:
+    doctrine:
+        orm:
+            entity_managers:
+                default:
+                    query_cache_driver:
+                        type: pool
+                        pool: doctrine.system_cache_pool
+                    result_cache_driver:
+                        type: pool
+                        pool: doctrine.result_cache_pool
+
+    framework:
+        cache:
+            pools:
+                doctrine.result_cache_pool:
+                    adapter: cache.app
+                doctrine.system_cache_pool:
+                    adapter: cache.system

@@ -1,0 +1,15 @@
+/.env.local
+/.env.*.local
+/vendor/
+/var/
+/.phpunit.cache/
+.phpunit.result.cache
+/.php-cs-fixer.cache
+/.direnv/
+
+# Frontend (scaffolded later)
+/frontend/node_modules/
+/frontend/dist/
+
+# Claude Code — local/runtime state
+/.claude/settings.local.json
