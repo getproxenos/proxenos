@@ -1,0 +1,96 @@
+:root {
+    color-scheme: light dark;
+    font-family:
+        system-ui,
+        -apple-system,
+        'Segoe UI',
+        Roboto,
+        sans-serif;
+    line-height: 1.5;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+}
+
+.app {
+    max-width: 48rem;
+    margin: 0 auto;
+    padding: 2rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    min-height: 100vh;
+}
+
+.app-header h1 {
+    margin: 0 0 0.25rem;
+    font-size: 1.5rem;
+}
+
+.app-header p {
+    margin: 0;
+    opacity: 0.7;
+}
+
+.thread {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.thread-empty {
+    opacity: 0.6;
+    font-style: italic;
+}
+
+.message {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.message-user {
+    align-self: flex-end;
+    background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.message-role {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.6;
+}
+
+.composer {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.composer-input {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+}
+
+.composer-send {
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}

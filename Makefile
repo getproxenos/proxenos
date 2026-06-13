@@ -81,9 +81,30 @@ lint: ## Run linters (php-cs-fixer dry-run, phpstan, yamllint, hadolint)
 	yamllint .
 	hadolint docker/php/Dockerfile
 
-# ---- frontend (scaffolded in the post-bootstrap frontend slice) -------------
-.PHONY: front-install front-build front-dev
-front-install front-build front-dev: ## (placeholder) JS toolchain not scaffolded yet
-	@echo "frontend/ is not scaffolded yet — pending the Node/Vite(+) research pass."
+# ---- frontend (decoupled React/assistant-ui SPA in frontend/) ----------------
+# Run inside the nix shell (node + pnpm come from the flake). See frontend/README.md.
+FRONT := pnpm --dir frontend
+
+.PHONY: front-install
+front-install: ## Install frontend dependencies
+	$(FRONT) install
+
+.PHONY: front-build
+front-build: ## Build the SPA into public/app (served by FrankenPHP)
+	$(FRONT) run build
+
+.PHONY: front-dev
+front-dev: ## Run the Vite dev server (HMR; proxies /api to localhost:8080)
+	$(FRONT) run dev
+
+.PHONY: front-lint
+front-lint: ## Lint + format-check + typecheck the frontend
+	$(FRONT) run lint
+	$(FRONT) run format:check
+	$(FRONT) run typecheck
+
+.PHONY: front-test
+front-test: ## Run the frontend test suite (Vitest)
+	$(FRONT) run test
 
 .DEFAULT_GOAL := help

@@ -40,12 +40,21 @@ services:
       # FrankenPHP worker mode — keep the kernel resident; symfony/runtime loops
       # requests through public/index.php.
       FRANKENPHP_CONFIG: "worker /var/www/html/public/index.php"
-      # Enable FrankenPHP's built-in Mercure hub at /.well-known/mercure.
+      # Caddy extra directives: (1) FrankenPHP's built-in Mercure hub at
+      # /.well-known/mercure; (2) serve the decoupled SPA built into public/app as
+      # static files, with client-side-routing fallback to its index.html. Caddy
+      # orders `handle` before php_server, so /app/* is served statically and never
+      # falls through to Symfony (which owns every other path).
       CADDY_SERVER_EXTRA_DIRECTIVES: |
         mercure {
           publisher_jwt {env.MERCURE_JWT_SECRET}
           subscriber_jwt {env.MERCURE_JWT_SECRET}
           anonymous
+        }
+        @spa path /app /app/*
+        handle @spa {
+          try_files {path} /app/index.html
+          file_server
         }
       SSL_MODE: "${SSL_MODE:-off}"
     ports:

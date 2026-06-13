@@ -1,0 +1,11 @@
+{
+  "plugins": ["react", "typescript"],
+  "env": {
+    "browser": true,
+    "es2024": true
+  },
+  "categories": {
+    "correctness": "error"
+  },
+  "ignorePatterns": ["dist"]
+}

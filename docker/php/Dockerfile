@@ -46,8 +46,22 @@ RUN install-php-extensions xdebug
 USER www-data
 
 # -----------------------------------------------------------------------------
-# prod — source + compiled vendor/, no dev tooling
+# frontend — build the decoupled React/assistant-ui SPA on its own Node stage.
+# The PHP image never carries Node; only the built assets land in prod. Vite's
+# base is /app/ and outDir is ../public/app, so this writes /app/public/app.
+# -----------------------------------------------------------------------------
+FROM node:24-bookworm-slim AS frontend
+RUN corepack enable
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+COPY frontend/ ./
+RUN pnpm run build
+
+# -----------------------------------------------------------------------------
+# prod — source + compiled vendor/ + built SPA, no dev tooling
 # -----------------------------------------------------------------------------
 FROM base AS prod
 COPY --from=builder --chown=www-data:www-data /var/www/html /var/www/html
+COPY --from=frontend --chown=www-data:www-data /app/public/app /var/www/html/public/app
 USER www-data

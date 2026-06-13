@@ -7,9 +7,10 @@
 /.php-cs-fixer.cache
 /.direnv/
 
-# Frontend (scaffolded later)
+# Frontend (decoupled React/assistant-ui SPA)
 /frontend/node_modules/
-/frontend/dist/
+# Vite build output — generated, served by FrankenPHP from public/app
+/public/app/
 
 # Claude Code — local/runtime state
 /.claude/settings.local.json
