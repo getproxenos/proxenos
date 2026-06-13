@@ -375,3 +375,74 @@ See `design-notes/prompt-declaration-walkthrough.md` for the envelope shape, the
 - **Provider-specific cache adapters.** The host policy is provider-neutral, but Anthropic's `cache_control` is the concrete v0 target; other providers need their own adapter contracts (and some have no equivalent), to be defined alongside the model-router work.
 - **Capability-type wrapper at the extension boundary.** `kind: "prompt"` works in isolation, but ADR-010 will likely want a top-level `capability_type` wrapper so entity declarations (ADR-013), prompt declarations (this ADR), operations (ADR-014), and hooks share one registration envelope.
 - **User-visible ordering controls.** Admin config can override slot, weight, and disable/enable; the UX for end-users pinning or re-ordering their own prompts (and the scope at which those overrides apply) is deferred.
+-
+- ## ADR-019: `symfony/ai` Platform as the model abstraction
+
+**Decision.** The core uses **`symfony/ai`** (the Platform component, wired through the AI
+Bundle) as its model-client abstraction. Application code talks to the model through the
+Platform's vendor-neutral interface and never hard-codes a provider; concrete
+provider/model/version is late-bound by config via provider bridges. A thin host-owned
+**model-profile resolver** sits on top, mapping ADR-014 profiles (`chat.frontier`,
+`reasoning.medium`, `reasoning.fast`, `embedding.text`) to a Platform + model selection.
+Scope is deliberately narrow: `symfony/ai` is adopted for **model calls only** (text
+generation, streaming, embeddings, structured output, tool calling). Its Chat component is
+**not** adopted — conversation persistence stays host-owned and event-sourced (ADR-004).
+Its Store (vector/RAG) and Agent (orchestration) components are deferred, not committed.
+
+**Rationale.** ADR-008 already commits provider/model to being a backend concern, and
+ADR-014 specifies that operations request a *profile* the host resolves to
+provider/model/version at runtime. Those decisions describe an abstraction the project would
+otherwise have to hand-roll across every provider — request shaping, streaming
+normalization, token accounting, structured-output coercion, tool-call plumbing. `symfony/ai`
+provides exactly that abstraction natively for the Symfony core (ADR-007): a single
+`PlatformInterface` with provider bridges, switchable by config without touching application
+code, and it already covers streaming, token usage, structured output, and tool calling.
+Adopting it follows the same instinct as ADR-009 (assistant-ui) — don't reinvent the
+boring-but-load-bearing layer when a well-shaped library owns it.
+
+The convergence/divergence read is clean. Iris reaches for a library here too (Prism PHP,
+`prism-php/prism`) rather than hand-rolling — convergence that validates "use a library."
+Where this design diverges is forced, not philosophical: Prism is Laravel-coupled (container,
+facades) and doesn't fit a Symfony core, so the Symfony-native equivalent is the right port
+of the same pattern. The library being vendor-neutral also de-risks the model-router work
+ADR-018 presupposes: `FailoverPlatform`, OpenRouter, and multi-provider support are things
+`symfony/ai` is itself building toward, rather than infrastructure this project must own.
+
+This is the substrate the Phase 0.3 turn loop builds its first profile resolver on, and the
+foundation the eventual tenant/admin-policy model router (ADR-014/018) grows from.
+
+**Ruled out.**
+- **Hand-rolled per-provider HTTP clients.** Maximum control, but reinvents bridges,
+  streaming normalization, token accounting, and structured-output handling — and the
+  maintenance cost scales with every provider added. The control isn't worth the surface.
+- **Prism PHP.** Iris's choice and a proven same-author ecosystem, but Laravel-coupled;
+  wrong framework fit for a Symfony core (ADR-007). The pattern is kept, the package isn't.
+- **Other PHP LLM libraries (e.g. LLPhant).** Viable, but less Symfony-native; `symfony/ai`
+  integrates through the bundle/DI/config path the rest of the core already uses.
+- **`symfony/ai` Chat component for conversation history.** Collides with the
+  event-sourced conversation model (ADR-004); persistence and the event log are host-owned
+  and canonical. Only Platform is in scope.
+- **`symfony/ai` Agent component as the orchestration layer (now).** Conceptually overlaps
+  ADR-014's Operation Registry; committing to it now would pre-empt that design. Revisit as
+  a possible implementation detail behind the registry, not as the registry.
+
+**Open questions surfaced.**
+- **Experimental-dependency risk.** `symfony/ai` is pre-1.0 and explicitly outside Symfony's
+  BC promise. Version is pinned and upgrades are deliberate — but is a thin anti-corruption
+  wrapper around `PlatformInterface` warranted to insulate the core from churn, or does the
+  profile resolver already provide enough of a seam?
+- **v0 default bridge.** Which provider bridge backs `chat.frontier` first — an
+  OpenAI-compatible bridge (most portable, and the lingua franca for local backends), an
+  Anthropic bridge, or a key-free local bridge (Ollama) for dev. A 0.0 sub-decision, but the
+  standing default is unsettled.
+- **Prompt cache breakpoints through the abstraction.** ADR-018's cache-breakpoint strategy
+  targets Anthropic's `cache_control` first. Whether that provider-specific control is even
+  expressible through the Platform abstraction (or normalized away by it) determines whether
+  the ADR-018 "provider-specific cache adapters" live above or below `symfony/ai`.
+- **Embeddings location.** Platform also abstracts embeddings. Does that change the open
+  "embedding pipeline location" calculus (in-core pgvector vs. Python extension), and does it
+  pull the Store component back into scope when in-core embeddings land?
+- **Tool calling vs. ADR-010 MCP.** `symfony/ai` supports tool calling and ships an MCP
+  Bundle; ADR-010 already adopts MCP for tool-shaped capabilities. Whether these align (the
+  bundle becomes the MCP client/server substrate) or stay separate is worth settling before
+  tools are built.
