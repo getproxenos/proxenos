@@ -1,5 +1,7 @@
 # Project Naming — Re-Seed Handoff
 
+> **Reseed complete (2026-06-13):** name chosen → **Proxenos**. The repo, GitHub remote, and in-repo references have been updated. The body below is preserved as the historical record of the placeholder-selection process — references to `bug-free-happiness` in the prose are intentional and left in place.
+
 **Purpose.** This document lets a fresh session re-run the naming exploration for the host application *from scratch*, but along **different metaphor seeds**, without losing any of the reusable scaffolding: what the thing is, how Beau's naming aesthetic works, the method, the availability-checking toolkit, and a ledger of what's already been explored (so the new run diverges instead of repeating dead ends).
 
 Working placeholder name today: **`bug-free-happiness`** (a GitHub auto-generated suggestion — not a real candidate).

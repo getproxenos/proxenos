@@ -1,6 +1,6 @@
 # frontend
 
-Decoupled React / assistant-ui SPA for bug-free-happiness (ADR-002, ADR-009).
+Decoupled React / assistant-ui SPA for Proxenos (ADR-002, ADR-009).
 
 Phase 0.0 scope is **toolchain + minimal scaffold**: prove install → build → served
 by FrankenPHP, plus a Vite dev server with HMR. The real `ExternalStoreRuntime` ↔

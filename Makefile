@@ -1,5 +1,5 @@
 # =============================================================================
-# Makefile — bug-free-happiness developer convenience targets
+# Makefile — Proxenos developer convenience targets
 # =============================================================================
 MAKEFLAGS += --no-print-directory
 

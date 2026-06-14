@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # =============================================================================
-# docker/php/Dockerfile — bug-free-happiness application image
+# docker/php/Dockerfile — Proxenos application image
 # =============================================================================
 # One parameterized Dockerfile, two variants (BASE_IMAGE set by docker-bake.hcl):
 #   serversideup/php:8.5-frankenphp -> HTTP `app` service (FrankenPHP worker mode)

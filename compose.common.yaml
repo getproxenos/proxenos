@@ -33,7 +33,7 @@ x-app-env: &app-env
 
 services:
   app:
-    image: "${APP_IMAGE:-bug-free-happiness/app:dev}"
+    image: "${APP_IMAGE:-proxenos/app:dev}"
     restart: unless-stopped
     environment:
       <<: *app-env
@@ -64,7 +64,7 @@ services:
         condition: service_healthy
 
   worker:
-    image: "${WORKER_IMAGE:-bug-free-happiness/worker:dev}"
+    image: "${WORKER_IMAGE:-proxenos/worker:dev}"
     restart: unless-stopped
     command: ["php", "bin/console", "messenger:consume", "async", "--time-limit=3600", "--memory-limit=128M", "-v"]
     environment:
@@ -74,7 +74,7 @@ services:
         condition: service_healthy
 
   scheduler:
-    image: "${WORKER_IMAGE:-bug-free-happiness/worker:dev}"
+    image: "${WORKER_IMAGE:-proxenos/worker:dev}"
     restart: unless-stopped
     command: ["php", "bin/console", "messenger:consume", "scheduler_default", "--time-limit=3600", "--memory-limit=128M", "-v"]
     environment:
@@ -84,7 +84,7 @@ services:
         condition: service_healthy
 
   reactor:
-    image: "${WORKER_IMAGE:-bug-free-happiness/worker:dev}"
+    image: "${WORKER_IMAGE:-proxenos/worker:dev}"
     restart: unless-stopped
     command: ["php", "bin/console", "app:reactor:run"]
     environment:

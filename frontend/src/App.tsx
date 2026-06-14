@@ -55,7 +55,7 @@ export function App() {
     <AssistantRuntimeProvider runtime={runtime}>
       <main className="app">
         <header className="app-header">
-          <h1>bug-free-happiness</h1>
+          <h1>Proxenos</h1>
           <p>Phase 0.0 frontend scaffold — React 19 + assistant-ui on Vite 8.</p>
         </header>
 

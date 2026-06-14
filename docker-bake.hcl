@@ -1,5 +1,5 @@
 # =============================================================================
-# docker-bake.hcl — bug-free-happiness image build configuration
+# docker-bake.hcl — Proxenos image build configuration
 # =============================================================================
 # Two variants from one Dockerfile:
 #   app    <- serversideup/php:${PHP_VERSION}-frankenphp   (HTTP service)
@@ -20,7 +20,7 @@
 # publish under a different org. CI overrides REGISTRY/TAG from the workflow
 # (derived from github.repository).
 variable "REGISTRY" {
-  default = "ghcr.io/simensen/bug-free-happiness"
+  default = "ghcr.io/getproxenos/proxenos"
 }
 
 variable "PHP_VERSION" {
@@ -40,7 +40,7 @@ target "_common" {
   context    = "."
   dockerfile = "docker/php/Dockerfile"
   labels = {
-    "org.opencontainers.image.source" = "https://github.com/simensen/bug-free-happiness"
+    "org.opencontainers.image.source" = "https://github.com/getproxenos/proxenos"
   }
 }
 
@@ -64,14 +64,14 @@ target "app-dev" {
   inherits = ["_common"]
   target   = "dev"
   args     = { BASE_IMAGE = base_image("frankenphp") }
-  tags     = ["bug-free-happiness/app:dev"]
+  tags     = ["proxenos/app:dev"]
 }
 
 target "worker-dev" {
   inherits = ["_common"]
   target   = "dev"
   args     = { BASE_IMAGE = base_image("cli") }
-  tags     = ["bug-free-happiness/worker:dev"]
+  tags     = ["proxenos/worker:dev"]
 }
 
 group "prod" {
