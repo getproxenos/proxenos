@@ -141,4 +141,11 @@ class Message
         $this->completedAt = $completedAt;
         $this->bumpSequence($sequence);
     }
+
+    public function markFailed(int $sequence, \DateTimeImmutable $failedAt): void
+    {
+        $this->status = MessageStatus::FAILED;
+        $this->completedAt = $failedAt;
+        $this->bumpSequence($sequence);
+    }
 }
