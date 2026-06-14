@@ -9,6 +9,7 @@ use App\Conversation\Event\EventEnvelope;
 use App\Conversation\Event\Payload\AssistantContentDelta;
 use App\Conversation\Event\Payload\AssistantTurnCompleted;
 use App\Conversation\Event\Payload\AssistantTurnCreated;
+use App\Conversation\Event\Payload\AssistantTurnFailed;
 use App\Conversation\Event\Payload\UserMessageSubmitted;
 use App\Conversation\EventAppender;
 use App\Entity\Message;
@@ -61,11 +62,15 @@ use Symfony\Component\Uid\Uuid;
  * text on every coalesced flush. The callback is best-effort progress, not the
  * source of truth — the event log is.
  *
- * Errors: when the Platform throws, the `user_message_submitted` event has
- * already been appended (and projection updated). We do NOT roll it back; the
- * user's message is real and should survive — even if assistant generation
- * failed. The exception bubbles to the caller; ADR-022's `assistant_turn_failed`
- * event stays Phase 0.5+ work.
+ * Errors (ADR-025): when the Platform throws, `user_message_submitted` (and
+ * possibly `assistant_turn_created` + some `assistant_content_delta`s) have
+ * already been appended. Before rethrowing, the loop appends
+ * `assistant_turn_failed` so the projection moves the Turn (and any partial
+ * assistant Message) to FAILED instead of staying stuck in STREAMING. The
+ * `user_message_submitted` event is never rolled back — the user's input is
+ * real and should survive, and an "explain what happened" reply or a
+ * retry-from-here UI both need it. Failure-event `error_summary` is
+ * sanitized by {@see self::summarizeError()} — never a raw stack trace.
  */
 final class ChatRespondLoop
 {
@@ -161,6 +166,25 @@ final class ChatRespondLoop
                 }
             }
         } catch (PlatformExceptionInterface $e) {
+            // ADR-025: record the failure on the event log BEFORE rethrowing so
+            // the projection moves the Turn (and any partial assistant Message)
+            // to FAILED instead of staying stuck in STREAMING. We send a
+            // sanitized error_summary — never the raw exception message in
+            // production data — and a stable `finish_reason` category. Pass the
+            // assistant message id only if at least one delta has landed; null
+            // otherwise so the fold knows there is no message row yet.
+            $this->appender->append(new EventEnvelope(
+                tenantId: $request->tenantId,
+                threadId: $request->threadId,
+                turnId: $turnId,
+                actorType: ActorType::ASSISTANT,
+                actorId: null,
+                payload: new AssistantTurnFailed(
+                    messageId: $deltaCount > 0 ? $assistantMessageId : null,
+                    finishReason: 'platform_error',
+                    errorSummary: self::summarizeError($e),
+                ),
+            ));
             throw new \RuntimeException(\sprintf('Model invocation failed for profile "%s": %s', $request->modelProfile, $e->getMessage()), 0, $e);
         }
 
@@ -250,5 +274,25 @@ final class ChatRespondLoop
     private function nowMs(): int
     {
         return (int) (microtime(true) * 1000);
+    }
+
+    /**
+     * Reduce a Platform exception to a short, non-sensitive summary safe to
+     * persist in the event log. We deliberately drop stack traces, provider
+     * URLs, and any tokens that might be embedded in the raw message — the
+     * payload is durable forever and ends up in projection rebuilds and
+     * audit exports. The exception class is the most useful signal; the
+     * first ~140 chars of the message is included as a coarse hint and only
+     * after stripping whitespace.
+     */
+    private static function summarizeError(\Throwable $e): string
+    {
+        $class = new \ReflectionClass($e)->getShortName();
+        $msg = trim(preg_replace('/\s+/', ' ', $e->getMessage()) ?? '');
+        if (\strlen($msg) > 140) {
+            $msg = substr($msg, 0, 137).'...';
+        }
+
+        return '' === $msg ? $class : $class.': '.$msg;
     }
 }
