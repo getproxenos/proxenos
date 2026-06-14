@@ -1,5 +1,5 @@
 {
-    "name": "bug-free-happiness/app",
+    "name": "proxenos/app",
     "description": "AI workspace host — Phase 0.0 skeleton (Symfony + FrankenPHP + Postgres/pgvector + symfony/ai).",
     "type": "project",
     "license": "proprietary",

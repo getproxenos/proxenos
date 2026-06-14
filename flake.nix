@@ -1,5 +1,5 @@
 {
-  description = "bug-free-happiness — PHP 8.5 + Node host toolchain (Composer, JS, lint/format/static-analysis)";
+  description = "Proxenos — PHP 8.5 + Node host toolchain (Composer, JS, lint/format/static-analysis)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -69,7 +69,7 @@
         in
         {
           default = pkgs.mkShellNoCC {
-            name = "bug-free-happiness";
+            name = "proxenos";
 
             packages = [
               php

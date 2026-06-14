@@ -1,5 +1,5 @@
 # =============================================================================
-# .dockerignore — bug-free-happiness
+# .dockerignore — Proxenos
 # =============================================================================
 # Keep the COPY . build context small and free of secrets/generated artifacts.
 
