@@ -20,8 +20,21 @@ parameters:
             model: claude-sonnet-4-6
             options:
                 max_tokens: 8192
+        # OpenAI-compatible profile. To make this the active chat profile
+        # without touching app code, change `chat.frontier.platform` above
+        # from `anthropic` to `generic.default` and set the env vars
+        # LLM_BASE_URL / LLM_API_KEY / LLM_CHAT_MODEL. One-line config edit.
+        #
+        # `stream_options.include_usage: true` is the OpenAI opt-in that asks
+        # the streamed response to emit a final `usage` chunk; without it,
+        # streamed turns log nothing for token counts (the non-streaming path
+        # always returns usage). Anthropic surfaces streamed usage
+        # automatically via `message_start`/`message_delta` and needs no
+        # equivalent opt-in (see ADR-024).
         chat.frontier_alt:
             platform: generic.default
             model: '%env(LLM_CHAT_MODEL)%'
             options:
                 temperature: 0.0
+                stream_options:
+                    include_usage: true

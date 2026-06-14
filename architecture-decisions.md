@@ -800,6 +800,17 @@ build the cursor/replay layer on top of the same event log.
 - *Per-tenant or per-profile flush constants.* `DELTA_FLUSH_CHARS` /
   `DELTA_FLUSH_MS` are class constants for v0. Lift to config when a profile
   needs a meaningfully different cadence.
+- *Streamed token usage differs per provider.* Anthropic surfaces usage on
+  every streamed turn automatically via `message_start` / `message_delta`
+  (`vendor/symfony/ai-anthropic-platform/ResultConverter.php` synthesizes a
+  `TokenUsage` delta from those events). OpenAI-compatible providers need an
+  explicit opt-in: `stream_options: { include_usage: true }` in the request
+  body, which the generic bridge's `ModelClient::request()` merges from the
+  profile options into the JSON payload
+  (`vendor/symfony/ai-generic-platform/Completions/ModelClient.php:60`).
+  `chat.frontier_alt` ships with that opt-in set so swapping the default
+  chat profile to the generic bridge does not silently regress usage
+  logging.
 - *Streaming in `ChatRespondResult.assistantText`.* Result still exposes the
   final assembled text — callers that wanted a single string keep getting
   one. Live progress goes through `onDelta`.
