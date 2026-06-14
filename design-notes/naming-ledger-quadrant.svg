@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 590" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif">
+  <rect x="0" y="0" width="760" height="590" fill="#ffffff"/>
+  <text x="100" y="44" font-size="20" font-weight="700" fill="#1f2933">Naming ledger — distinctiveness × namespace cleanliness</text>
+  <text x="100" y="66" font-size="13" fill="#6b7280">Where each explored candidate sits, and where the next round should aim.</text>
+
+  <!-- plot frame -->
+  <rect x="100" y="86" width="590" height="400" fill="#fafafa" stroke="#e5e7eb" stroke-width="1"/>
+  <!-- quadrant divider -->
+  <line x1="395" y1="86" x2="395" y2="486" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="4 4"/>
+  <line x1="100" y1="286" x2="690" y2="286" stroke="#e5e7eb" stroke-width="1" stroke-dasharray="4 4"/>
+
+  <!-- target zone -->
+  <ellipse cx="600" cy="176" rx="95" ry="78" fill="#22c55e" fill-opacity="0.06" stroke="#86efac" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <text x="600" y="120" font-size="12" font-style="italic" fill="#15803d" text-anchor="middle">target zone</text>
+  <text x="600" y="136" font-size="11" fill="#15803d" text-anchor="middle">§8 seeds should aim here</text>
+
+  <!-- quadrant corner labels -->
+  <text x="110" y="104" font-size="11" font-style="italic" fill="#9ca3af">distinctive · namespace contested</text>
+  <text x="680" y="104" font-size="11" font-style="italic" fill="#9ca3af" text-anchor="end">distinctive · grabbable</text>
+  <text x="110" y="478" font-size="11" font-style="italic" fill="#9ca3af">crowded identity · contested</text>
+  <text x="680" y="478" font-size="11" font-style="italic" fill="#9ca3af" text-anchor="end">clean namespace · generic identity</text>
+
+  <!-- axis titles -->
+  <text x="395" y="524" font-size="13" font-weight="600" fill="#374151" text-anchor="middle">Namespace cleanliness</text>
+  <text x="104" y="500" font-size="11" fill="#9ca3af">&#8592; contested</text>
+  <text x="686" y="500" font-size="11" fill="#9ca3af" text-anchor="end">grabbable &#8594;</text>
+  <text x="60" y="286" font-size="13" font-weight="600" fill="#374151" text-anchor="middle" transform="rotate(-90 60 286)">Distinctiveness</text>
+  <text x="78" y="92" font-size="11" fill="#9ca3af" text-anchor="middle" transform="rotate(-90 78 92)">owns its space &#8594;</text>
+
+  <!-- ===== points ===== -->
+  <!-- ruled out (red) -->
+  <circle cx="171" cy="428" r="7" fill="#ef4444" stroke="#ffffff" stroke-width="2"/>
+  <text x="181" y="432" font-size="13" fill="#1f2933">Tessera</text>
+  <circle cx="218" cy="376" r="7" fill="#ef4444" stroke="#ffffff" stroke-width="2"/>
+  <text x="228" y="380" font-size="13" fill="#1f2933">Xenia</text>
+  <circle cx="324" cy="360" r="7" fill="#ef4444" stroke="#ffffff" stroke-width="2"/>
+  <text x="334" y="364" font-size="13" fill="#1f2933">Contextus</text>
+  <circle cx="259" cy="308" r="7" fill="#ef4444" stroke="#ffffff" stroke-width="2"/>
+  <text x="269" y="312" font-size="13" fill="#1f2933">Cella</text>
+
+  <!-- hold (amber) -->
+  <circle cx="513" cy="248" r="7" fill="#f59e0b" stroke="#ffffff" stroke-width="2"/>
+  <text x="523" y="252" font-size="13" fill="#1f2933">Propolis</text>
+  <circle cx="596" cy="148" r="7" fill="#f59e0b" stroke="#ffffff" stroke-width="2"/>
+  <text x="586" y="152" font-size="13" fill="#1f2933" text-anchor="end">Breccia</text>
+
+  <!-- frontrunners (green) -->
+  <circle cx="489" cy="188" r="7" fill="#22c55e" stroke="#ffffff" stroke-width="2"/>
+  <text x="499" y="192" font-size="13" fill="#1f2933">Catena</text>
+  <circle cx="607" cy="280" r="7" fill="#22c55e" stroke="#ffffff" stroke-width="2"/>
+  <text x="617" y="284" font-size="13" fill="#1f2933">Ligand</text>
+  <circle cx="661" cy="348" r="7" fill="#22c55e" stroke="#ffffff" stroke-width="2"/>
+  <text x="651" y="352" font-size="13" fill="#1f2933" text-anchor="end">lgnd</text>
+
+  <!-- legend -->
+  <circle cx="130" cy="550" r="6" fill="#22c55e"/>
+  <text x="142" y="554" font-size="12" fill="#374151">frontrunner</text>
+  <circle cx="245" cy="550" r="6" fill="#f59e0b"/>
+  <text x="257" y="554" font-size="12" fill="#374151">hold / mood caveat</text>
+  <circle cx="410" cy="550" r="6" fill="#ef4444"/>
+  <text x="422" y="554" font-size="12" fill="#374151">ruled out</text>
+  <text x="690" y="554" font-size="11" font-style="italic" fill="#9ca3af" text-anchor="end">position = judgement, not a precise score</text>
+
+  <text x="100" y="582" font-size="11" fill="#9ca3af">Round-2 names (Stroma, Skep, Loam…) are unscored — they belong in the open top-right, alongside the §8 seeds.</text>
+</svg>
