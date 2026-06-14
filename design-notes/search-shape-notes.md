@@ -280,9 +280,11 @@ declarable per type. Noted for ADR-013.
   modality or a content/metadata convention. Flag for handoff-2.
 - **Evidence-presentation hint** is not in the schema language (§5). Host convention for
   now; candidate ADR-013 slot.
-- **Pure reference vs. hydrated snapshot** — results return references, not entity bodies.
-  Whether a result may optionally embed a partial entity snapshot (to avoid a follow-up
-  fetch for rendering) is open; interacts with the prompt-budget / transclusion design.
+- **Pure reference vs. hydrated snapshot** — *Resolved by `reference-envelope.md` (ADR-013a).*
+  The result-row `ref` is the universal reference envelope. The envelope carries an optional
+  `snapshot` field that producers may include to spare the renderer a follow-up fetch; the
+  host may always ignore it and re-fetch by `id`. Snapshots are never authoritative — the
+  prompt-budget/transclusion design still chooses degradation modes independently.
 - **Pagination** — only `limit` + `truncated` today; no cursor. Fine for v0, but a
   cursor/offset will be needed for "load more."
 - **Cross-provider merge & ranking** — once GitHub/Linear providers exist, scores aren't

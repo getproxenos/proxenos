@@ -5,10 +5,13 @@ settled enough to formalize. This is the largest deferred piece surfaced by the 
 walkthroughs.
 
 **Source open question:** "Transclusion design" in `open-questions.md` (Currently chewing on).
-**Anchored by:** ADR-013 (schema language / references), ADR-012 (schema-driven rendering),
+**Anchored by:** ADR-013 (schema language / references), ADR-013a (universal reference
+envelope + reserved `expansion` slot), ADR-012 (schema-driven rendering),
 ADR-004/010 (event log + host↔extension wire protocol).
 **Inputs:** `note-walkthrough.md` (body references + resolution sidecar),
-`context-set-walkthrough.md` (query-member resolution).
+`context-set-walkthrough.md` (query-member resolution),
+`reference-envelope.md` (universal envelope — reserves the `expansion` slot this design
+will populate).
 
 ---
 
@@ -41,7 +44,10 @@ Three concrete sites where transclusion shows up, all already in the design:
   `label` + affordance), a **summary** (the `summary` slot from ADR-013 — note the strategy
   form already produces a bounded excerpt), or the **full body**? Likely a per-context choice:
   inline citation → pill; attached top-level entity → summary or full; the renderer and the
-  prompt serializer may pick differently.
+  prompt serializer may pick differently. The reference envelope's reserved
+  `expansion: pill | summary | full` field (ADR-013a, `reference-envelope.md` §7) is the
+  per-reference hint this design will populate; v0 honors `pill` only and downgrades the
+  other two, so landing this design is **additive** rather than a wire-format migration.
 - **Cycle detection.** Notes backlink each other; A → B → A is normal in a vault. Expansion
   must track visited ids (the canonical URI from ADR-013 is the natural dedup key) and degrade
   a repeat to a pill rather than loop.
