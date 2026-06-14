@@ -710,3 +710,114 @@ respects the handoff's "minimal web UI" and the existing 0.1 server-rendered she
 - *System prompt.* v0 sends no system prompt — the dumb concat starts at the first user turn.
   Once prompt declarations (ADR-018) or any host policy needs to inject one, the loop is the
   obvious place; for now keeping it absent makes the swap-by-config DoD trivially honest.
+
+## ADR-024: Phase 0.4 backend streaming — cumulative-replace deltas coalesced at UI cadence, SSE fan-out as a dumb companion
+
+**Decision.** Phase 0.4 turns the Phase 0.3 single-shot loop into a streaming
+loop without changing ADR-022's four-event contract. Specifically:
+
+1. *Cumulative-replace delta semantics.* Each `assistant_content_delta` carries
+   the **cumulative text-so-far** for `(message_id, part_index=0)` — not the
+   marginal text emitted since the last delta. `ProjectionFolder` already folds
+   the payload as "replace the part content at `(message_id, part_index)`"
+   (`$part->replaceContent(...)`), which makes progressively longer cumulative
+   text land naturally. Rebuild and replay stay idempotent: replaying any
+   prefix-then-suffix of the delta sequence converges to the same final state
+   because each delta is a fixed point given the part identity. Resolves the
+   ADR-022 / ADR-023 open question.
+
+2. *Coalesce at UI cadence, not per provider token.* The loop accumulates raw
+   `TextDelta`s from the Platform stream and flushes a coalesced
+   `assistant_content_delta` event when either ~32 chars have arrived since the
+   last flush or ~80 ms of wall-clock have elapsed (constants live on
+   `ChatRespondLoop`). One event per provider token would be the wrong
+   granularity — both for the event log (storage churn, replay cost) and the
+   UI (`design-notes/streaming-runtime-notes.md` §5 calls this out explicitly).
+   A final flush always fires so the last cumulative text is durable, even for
+   empty replies — the assistant message must materialize before
+   `assistant_turn_completed` can mark it COMPLETE.
+
+3. *Loop stays operation-compatible (additive only).* `ChatRespondLoop`'s
+   public request/result shape and `core.chat.respond` posture (ADR-014,
+   ADR-023) are unchanged. `ChatRespondRequest` grows one optional field —
+   `onDelta` — for HTTP-side progress fan-out. Token-usage capture moves
+   from `TextResult::getResult()->getMetadata()` to the deferred result's
+   metadata after the text stream is exhausted, populated by symfony/ai's
+   `TokenUsageStreamListener`.
+
+4. *SSE endpoint is a dumb companion, not the resumable protocol.* A second
+   route `POST /chat/{threadId}/messages/stream` mirrors the form endpoint's
+   CSRF + tenancy checks and returns a `StreamedResponse` with
+   `text/event-stream` data frames (`data: {"type":"delta"|"done","text":…}`).
+   The thread view's inline JS intercepts form submit, parses the SSE feed
+   into a live preview, then reloads on `done`. No cursor, no replay, no
+   reconnect, no broker, no Mercure — those belong to the deferred assistant-
+   ui SPA (`design-notes/streaming-runtime-notes.md` §3, §5). The original
+   form-POST route stays so JS-disabled clients keep working. On disconnect
+   mid-stream the client just reloads the thread; the canonical event log
+   already has every persisted delta.
+
+5. *Tests stay credential-free.* `RecordingInMemoryPlatform` now returns a
+   `StreamResult` of `TextDelta`s when `stream: true` is requested. Tests pin
+   explicit chunk lists for deterministic coalescing assertions (cumulative
+   monotonic growth, multi-delta ordering, COMPLETE-after-completed,
+   empty-reply edge case). The SSE controller test reads the captured stream
+   off BrowserKit's chunk-buffered internal response. Live provider streaming
+   (Anthropic over HTTPS) needs an `ANTHROPIC_API_KEY` and is left as a manual
+   live-verification step on the PR.
+
+**Rationale.** Cumulative-replace is the smaller surgical change: it lets the
+existing `ProjectionFolder` fold semantics carry forward unchanged. Marginal-
+append was the more "obvious" pick (it matches how providers emit tokens), but
+it would require either a different fold path for streaming vs replay or a
+state machine that tracks "have I seen this delta already" per part. The
+replace form makes idempotency a property of the data, not of the writer's
+discipline. Storage cost is bounded: at 32-char flushes a typical assistant
+turn produces ~10–30 deltas instead of hundreds, and each carries the
+running text — fewer events, slightly larger payloads, net neutral.
+
+The SSE endpoint is a UI affordance, not a wire protocol. The fuller
+"cursor-based event recovery" the streaming-runtime-notes document calls for
+belongs to the assistant-ui SPA work, which Phase 0.0 deferred until 0.4
+streaming exists. With this ADR it does — but the SPA itself is out of scope
+for this phase, so the Twig UI gets the dumb fan-out and the SPA work will
+build the cursor/replay layer on top of the same event log.
+
+**Ruled out.**
+- *Marginal-text-append delta semantics.* See above — would split the fold
+  path or move idempotency into the writer.
+- *One event per provider token.* Wrong storage and UI granularity; the
+  streaming-runtime-notes are explicit on this.
+- *Mercure / broker / WebSocket / Server-side queue.* Heavier than needed for
+  v0's "one Twig page reads the projection" UX. Adopt when fan-out, multi-
+  device, or backgrounded turns are real.
+- *Cursor / replay / reconnect endpoint in 0.4.* Belongs to the assistant-ui
+  SPA work (ADR-002/004), not the Twig stopgap. The event log already supports
+  it; the endpoint can land when the SPA needs it.
+- *`assistant_turn_failed` in 0.4.* Same posture as 0.3: Platform exceptions
+  bubble; the user message stays appended. Land the failure event when a
+  retry/cancel UX needs it.
+- *Per-tenant or per-profile flush constants.* `DELTA_FLUSH_CHARS` /
+  `DELTA_FLUSH_MS` are class constants for v0. Lift to config when a profile
+  needs a meaningfully different cadence.
+- *Streaming in `ChatRespondResult.assistantText`.* Result still exposes the
+  final assembled text — callers that wanted a single string keep getting
+  one. Live progress goes through `onDelta`.
+
+**Open questions surfaced.**
+- *Live verification of provider streaming.* This phase verifies coalescing,
+  cumulative semantics, event-log behavior, and SSE wire format end-to-end
+  with the in-memory platform. Real Anthropic streaming over HTTPS needs an
+  `ANTHROPIC_API_KEY`; documented on the PR as a manual checklist item, does
+  not gate merge.
+- *Token-usage projection.* Same posture as ADR-023's open question — captured
+  and logged, not yet persisted as a `usage` projection. Lands with the
+  ADR-014 operation envelope.
+- *Cancellation.* `ExternalStoreRuntime` will want `onCancel` to signal a host
+  cancellation intent. The streaming generator already supports break-out;
+  what's missing is a cooperative cancel path through the loop + an
+  `assistant_turn_cancelled` payload. Park until the SPA needs it.
+- *Backpressure / slow client.* SSE writes are best-effort `flush()`; a slow
+  consumer just gets buffered chunks. Once Mercure or a broker lands, this is
+  someone else's problem; until then, the Twig client reloads on done so a
+  stalled stream is recoverable by retrying the page.
