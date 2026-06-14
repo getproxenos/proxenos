@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Tests\Support;
 
+use Symfony\AI\Platform\Exception\ExceptionInterface as PlatformExceptionInterface;
+use Symfony\AI\Platform\Exception\RuntimeException as PlatformRuntimeException;
 use Symfony\AI\Platform\Model;
 use Symfony\AI\Platform\ModelCatalog\ModelCatalogInterface;
 use Symfony\AI\Platform\PlatformInterface;
@@ -42,6 +44,10 @@ final class RecordingInMemoryPlatform implements PlatformInterface
     /** @var list<string>|null */
     private static ?array $nextReplyChunks = null;
 
+    private static ?PlatformExceptionInterface $nextError = null;
+
+    private static int $nextErrorAfterChunks = 0;
+
     private readonly InMemoryPlatform $inner;
 
     public function __construct()
@@ -53,10 +59,19 @@ final class RecordingInMemoryPlatform implements PlatformInterface
                 'options' => $options,
             ];
 
+            // Immediate failure: throw inside invoke() before any DeferredResult
+            // is built. Mirrors auth/4xx failures the real Anthropic bridge
+            // raises before yielding the first byte.
+            if (null !== self::$nextError && 0 === self::$nextErrorAfterChunks) {
+                $error = self::$nextError;
+                self::$nextError = null;
+                throw $error;
+            }
+
             $chunks = self::$nextReplyChunks ?? self::splitForStream(self::$nextReply);
 
             if ($options['stream'] ?? false) {
-                return new StreamResult(self::generateChunks($chunks));
+                return new StreamResult(self::generateChunks($chunks, self::$nextError, self::$nextErrorAfterChunks));
             }
 
             return new TextResult(implode('', $chunks));
@@ -89,11 +104,26 @@ final class RecordingInMemoryPlatform implements PlatformInterface
         return self::$calls;
     }
 
+    /**
+     * Pin the next invoke() to throw. When `$afterChunks` is 0 (the default),
+     * the throw fires inside invoke() before any DeferredResult exists —
+     * exercises the loop's pre-delta failure path. When `$afterChunks > 0`,
+     * the stream generator yields that many chunks first, then throws —
+     * exercises a mid-stream failure where some deltas were already appended.
+     */
+    public function setNextError(?PlatformExceptionInterface $error = null, int $afterChunks = 0): void
+    {
+        self::$nextError = $error ?? new PlatformRuntimeException('canned platform failure');
+        self::$nextErrorAfterChunks = max(0, $afterChunks);
+    }
+
     public function reset(): void
     {
         self::$calls = [];
         self::$nextReply = 'echo: ok';
         self::$nextReplyChunks = null;
+        self::$nextError = null;
+        self::$nextErrorAfterChunks = 0;
     }
 
     public function invoke(string $model, array|string|object $input, array $options = []): DeferredResult
@@ -123,10 +153,23 @@ final class RecordingInMemoryPlatform implements PlatformInterface
      *
      * @return \Generator<TextDelta>
      */
-    private static function generateChunks(array $chunks): \Generator
+    private static function generateChunks(array $chunks, ?PlatformExceptionInterface $errorAfter, int $afterCount): \Generator
     {
+        $i = 0;
         foreach ($chunks as $chunk) {
+            if (null !== $errorAfter && $afterCount > 0 && $i === $afterCount) {
+                self::$nextError = null;
+                self::$nextErrorAfterChunks = 0;
+                throw $errorAfter;
+            }
             yield new TextDelta($chunk);
+            ++$i;
+        }
+
+        if (null !== $errorAfter && $afterCount > 0 && $i >= $afterCount) {
+            self::$nextError = null;
+            self::$nextErrorAfterChunks = 0;
+            throw $errorAfter;
         }
     }
 }
