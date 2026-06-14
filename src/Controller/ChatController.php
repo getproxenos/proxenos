@@ -17,6 +17,7 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Symfony\Component\Uid\Uuid;
@@ -143,6 +144,77 @@ final class ChatController extends AbstractController
         ));
 
         return $this->redirectToRoute('chat_show', ['threadId' => $threadId]);
+    }
+
+    /**
+     * SSE companion to {@see self::submit()}. Same CSRF + tenancy checks; same
+     * `ChatRespondLoop` call. The difference is that this endpoint streams
+     * cumulative-text deltas back as `text/event-stream` events while the loop
+     * runs, so the Twig thread view can render text progressively.
+     *
+     * Deliberately dumb: no cursor, no replay, no reconnect — those belong to
+     * the deferred assistant-ui SPA (`design-notes/streaming-runtime-notes.md`
+     * §3). On reconnect mid-stream, the client just reloads the thread page;
+     * the durable event log already has every persisted delta.
+     */
+    #[Route('/{threadId}/messages/stream', name: 'submit_stream', methods: ['POST'], requirements: ['threadId' => '[0-9a-f-]{36}'])]
+    public function submitStream(string $threadId, Request $request): Response
+    {
+        $membership = $this->resolveMembershipOrAbort();
+        $threadUuid = Uuid::fromString($threadId);
+
+        $token = (string) $request->request->get('_csrf_token', '');
+        if (!$this->isCsrfTokenValid('chat', $token)) {
+            throw $this->createAccessDeniedException('Invalid CSRF token.');
+        }
+
+        $existing = $this->threads->find($threadUuid);
+        if (null !== $existing && !$existing->getTenantId()->equals($membership->getTenant()->getId())) {
+            throw $this->createAccessDeniedException('Thread does not belong to current tenant.');
+        }
+
+        $text = trim((string) $request->request->get('text', ''));
+        if ('' === $text) {
+            return new Response('Message text cannot be empty.', Response::HTTP_BAD_REQUEST);
+        }
+
+        /** @var User $user */
+        $user = $this->getUser();
+        $tenantId = $membership->getTenant()->getId();
+        $userId = $user->getId();
+
+        $response = new StreamedResponse(function () use ($tenantId, $userId, $threadUuid, $text): void {
+            $emit = static function (string $type, array $data): void {
+                echo 'data: '.json_encode(['type' => $type] + $data, \JSON_THROW_ON_ERROR)."\n\n";
+                @ob_flush();
+                flush();
+            };
+
+            try {
+                $result = $this->loop->execute(new ChatRespondRequest(
+                    tenantId: $tenantId,
+                    userId: $userId,
+                    threadId: $threadUuid,
+                    userMessageText: $text,
+                    onDelta: static function (string $cumulative) use ($emit): void {
+                        $emit('delta', ['text' => $cumulative]);
+                    },
+                ));
+                $emit('done', [
+                    'thread_id' => (string) $result->threadId,
+                    'turn_id' => (string) $result->turnId,
+                    'text' => $result->assistantText,
+                ]);
+            } catch (\Throwable $e) {
+                $emit('error', ['message' => $e->getMessage()]);
+            }
+        });
+
+        $response->headers->set('Content-Type', 'text/event-stream');
+        $response->headers->set('Cache-Control', 'no-cache');
+        $response->headers->set('X-Accel-Buffering', 'no'); // disable nginx/Caddy proxy buffering
+
+        return $response;
     }
 
     private function resolveMembershipOrAbort(): Membership

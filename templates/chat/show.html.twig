@@ -39,7 +39,7 @@
             <p><em>New thread — submit a message to materialize it.</em></p>
         {% endif %}
 
-        <ol class="messages">
+        <ol class="messages" id="messages">
             {% for m in messages %}
                 <li class="message message-{{ m.role }}">
                     <strong>{{ m.role|capitalize }}</strong>
@@ -49,7 +49,22 @@
             {% endfor %}
         </ol>
 
-        <form method="post" action="{{ path('chat_submit', {threadId: thread_id}) }}">
+        <ol class="messages" id="live-stream" hidden>
+            <li class="message message-user">
+                <strong>User</strong>
+                <pre id="live-user"></pre>
+            </li>
+            <li class="message message-assistant">
+                <strong>Assistant</strong>
+                <small>streaming…</small>
+                <pre id="live-assistant"></pre>
+            </li>
+        </ol>
+
+        <form id="chat-form"
+              method="post"
+              action="{{ path('chat_submit', {threadId: thread_id}) }}"
+              data-stream-action="{{ path('chat_submit_stream', {threadId: thread_id}) }}">
             <input type="hidden" name="_csrf_token" value="{{ csrf_token('chat') }}">
             <label for="text">Your message</label>
             <textarea id="text" name="text" rows="4" cols="80" required autofocus></textarea>
@@ -58,4 +73,88 @@
             </div>
         </form>
     </section>
+
+    {# Inline SSE consumer — Phase 0.4. Intentionally dumb: no cursor, no
+       replay, no reconnect. On stream completion we reload the page so the
+       server-rendered projection is the source of truth. JS-disabled
+       browsers fall back to the form's regular POST + redirect. #}
+    <script>
+    (function () {
+        const form = document.getElementById('chat-form');
+        if (!form || !window.fetch || !window.ReadableStream) {
+            return;
+        }
+        const streamAction = form.dataset.streamAction;
+        if (!streamAction) {
+            return;
+        }
+        const liveBox = document.getElementById('live-stream');
+        const liveUser = document.getElementById('live-user');
+        const liveAssistant = document.getElementById('live-assistant');
+
+        form.addEventListener('submit', async function (event) {
+            event.preventDefault();
+            const text = form.querySelector('textarea[name="text"]').value;
+            if (!text.trim()) {
+                return;
+            }
+            liveUser.textContent = text;
+            liveAssistant.textContent = '';
+            liveBox.hidden = false;
+            form.querySelector('button[type="submit"]').disabled = true;
+
+            const fd = new FormData(form);
+            let response;
+            try {
+                response = await fetch(streamAction, {
+                    method: 'POST',
+                    body: fd,
+                    headers: { Accept: 'text/event-stream' },
+                    credentials: 'same-origin',
+                });
+            } catch (e) {
+                form.submit();
+                return;
+            }
+            if (!response.ok || !response.body) {
+                form.submit();
+                return;
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            let lastEvent = null;
+            while (true) {
+                const { value, done } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                let sep;
+                while ((sep = buffer.indexOf('\n\n')) >= 0) {
+                    const raw = buffer.slice(0, sep);
+                    buffer = buffer.slice(sep + 2);
+                    const dataLine = raw.split('\n').find(function (l) { return l.startsWith('data: '); });
+                    if (!dataLine) continue;
+                    let payload;
+                    try {
+                        payload = JSON.parse(dataLine.slice(6));
+                    } catch (e) {
+                        continue;
+                    }
+                    lastEvent = payload;
+                    if (payload.type === 'delta' && typeof payload.text === 'string') {
+                        liveAssistant.textContent = payload.text;
+                    } else if (payload.type === 'error') {
+                        liveAssistant.textContent = '[error] ' + (payload.message || 'unknown');
+                    }
+                }
+            }
+            if (lastEvent && lastEvent.type === 'done') {
+                window.location.reload();
+            } else {
+                form.querySelector('button[type="submit"]').disabled = false;
+            }
+        });
+    })();
+    </script>
 {% endblock %}
