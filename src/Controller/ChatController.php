@@ -186,7 +186,12 @@ final class ChatController extends AbstractController
         $response = new StreamedResponse(function () use ($tenantId, $userId, $threadUuid, $text): void {
             $emit = static function (string $type, array $data): void {
                 echo 'data: '.json_encode(['type' => $type] + $data, \JSON_THROW_ON_ERROR)."\n\n";
-                @ob_flush();
+                // Guard ob_flush(): it warns when no PHP output buffer is active
+                // (the common case for a Symfony StreamedResponse), and @ would
+                // mask any real flush error.
+                if (ob_get_level() > 0) {
+                    ob_flush();
+                }
                 flush();
             };
 
