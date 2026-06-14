@@ -175,6 +175,15 @@ final class ChatRespondLoop
         }
 
         $usage = null;
+        // Streamed token-usage path: `DeferredResult::getResult()` registers a
+        // `TokenUsageStreamListener` against the underlying `StreamResult` (see
+        // vendor/symfony/ai-platform/src/Result/DeferredResult.php:60). The
+        // listener catches `TokenUsageInterface` deltas mid-stream and writes
+        // them onto the result's metadata. `DeferredResult::asStream()`'s
+        // `finally` block then copies the result metadata onto the deferred
+        // itself once the generator is exhausted (DeferredResult.php:168) — so
+        // by the time the `foreach` above has fully drained, the value lives
+        // here, not on `getResult()->getMetadata()`.
         $tokenUsage = $deferred->getMetadata()->get('token_usage');
         if ($tokenUsage instanceof TokenUsageInterface) {
             $usage = $tokenUsage;
