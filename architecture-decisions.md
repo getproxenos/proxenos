@@ -1055,4 +1055,134 @@ migration.
 - *Cross-provider type overlay.* Out of scope here — the envelope is per-provider;
   the overlay question stays open in `open-questions.md`.
 
+## ADR-026: Twig → assistant-ui SPA cutover before the vertical slice
+
+**Decision.** The Twig chat surface (ADR-023's `/chat`, `/chat/{threadId}`,
+ADR-024's `text/event-stream` companion route, the inline SSE-parsing JS in
+`templates/chat/show.html.twig`) is officially a **stopgap**, not the
+destination. The destination is the assistant-ui SPA over `ExternalStoreRuntime`
+that ADR-002 / ADR-009 already committed to and the Phase 0.0 echo scaffold
+already proves the toolchain for (`frontend/src/App.tsx`,
+`design-notes/frontend-toolchain-notes.md`). This ADR sets the cutover line and
+the rule that governs new feature work after it.
+
+1. *Cutover line.* The cutover is sequenced **before step 5** (the vertical
+   slice — `handoffs/handoff-vertical-slice.md`). Step 5's UI — schema-driven
+   entity cards, attach picker, branching / retry, streaming UX — is
+   assistant-ui's wheelhouse; building it in Twig would be throwaway. Order:
+   step 1 (reference envelope, ADR-013a) → SPA enablement
+   (`handoffs/handoff-spa-enablement.md`) → step 5.
+
+2. *Decision rule for what gets built where, from this ADR onward.* Read /
+   display, or a simple server-rendered form (login, settings shells, status
+   pages, the form-POST chat fallback) → Twig is still fine. Interactive
+   runtime affordances (live streaming beyond a dumb reload, cancel,
+   retry / branch, attachments, schema-driven entity cards, citation pills,
+   anything that wants `onCancel` / `onReload` / `onEdit`) → **SPA-first**.
+   Twig is preserved specifically as the no-JS fallback that ADR-024 already
+   carries; it is not a place new interactive features are added.
+
+3. *The slice that delivers this is the same slice that closes the streaming
+   hardening ADR-024 deferred.* ADR-024 point 4 explicitly parks the cursor /
+   replay / reconnect endpoint and the Mercure / broker / WebSocket question
+   *"to the assistant-ui SPA work."* ADR-023's Ruled-out list parks SPA auth
+   the same way. Phase 0.0 deferred the real `ExternalStoreRuntime` adapter
+   to *"the 0.3 streaming contract."* This ADR names those three deferrals
+   plus the adapter as **one slice with four prerequisites**: cursor replay
+   endpoint, push transport, SPA auth, and the real runtime adapter. The
+   handoff carries the per-prereq interface contracts.
+
+4. *Twig surfaces stay live during the migration and retire as a single
+   follow-up.* No deletion in the SPA-enablement slice itself; the form-POST
+   `/chat` route, the SSE companion route, and the inline parser remain as
+   the no-JS fallback until SPA coverage is complete enough for one cleanup
+   commit to retire them. Mid-migration the SPA can ship behind `/app/*` and
+   become the default entry point once the vertical slice lands.
+
+**Rationale.** Three pieces of evidence converge on cutting over now rather
+than later:
+
+- *PR #4 shipped ~80 lines of hand-rolled inline SSE-parsing JS in a Twig
+  template* (`templates/chat/show.html.twig:102-175`) to drive a single-thread
+  live preview that reloads on `done`. That code reimplements, poorly, the
+  stream subscription / idempotent rendering / terminal-event handling
+  plumbing that `ExternalStoreRuntime` provides for free. Every additional
+  interactive feature built in Twig multiplies that pattern. The cutover
+  deletes the parser instead of growing more of them.
+- *The four "do this later" tickets pinned by ADR-023 / ADR-024 / Phase 0.0
+  are not four tickets; they are one slice.* Naming that out loud makes the
+  scope honest and lets the work be sequenced as one PR (or a tightly
+  ordered stack) rather than four loosely related ones.
+- *Step 5 needs UI that Twig is the wrong shape for.* Postponing the cutover
+  to after step 5 would mean either rendering schema-driven entity cards /
+  attach picker / branch import in Twig (throwaway) or doing the SPA work
+  *and* step 5 in the same slice (scope explosion). Doing the SPA work
+  first, with step 5 designed against it, is the path that does not throw
+  anything away.
+
+The decision rule is the smallest commitment that prevents future drift. It
+does not retroactively rewrite Twig — settings pages, login, the no-JS chat
+fallback all stay where they are — it only governs *new* interactive surfaces.
+The host-owned store / event-contract split from
+`design-notes/streaming-runtime-notes.md` is unchanged: assistant-ui owns the
+ergonomic runtime surface, the host owns the conversation state machine.
+
+**Ruled out.**
+
+- *Keep growing Twig indefinitely.* Every interactive feature would reimplement
+  a slice of `ExternalStoreRuntime`'s plumbing in template JS — the PR #4 SSE
+  parser is the first instance, and step 5's attach / branch / streamed cards
+  would each spawn more. The maintenance and rendering-consistency cost grows
+  linearly with features built on the wrong base.
+- *Go SPA-from-day-one — i.e. cut over earlier, ahead of Phase 0.3.* This was
+  the right call at the time (ADR-023's Ruled-out: *"Wiring the React SPA's
+  auth in 0.3"*) — pairing SPA auth + Mercure + the runtime adapter with the
+  *first* working turn loop in one PR would have muddled two distinct
+  decisions and delayed evidence about the loop. Now, two phases on, the
+  cutover is the smaller change: there is an event log to subscribe to, a
+  failure event to render (ADR-025), and a known-shape echo scaffold to
+  replace from the inside out.
+- *Skip Twig entirely as a fallback, SPA-only.* Loses the no-JS posture the
+  Phase 0.4 form-POST route already gives for free, and re-opens the same
+  hard auth-redirect / first-load story Twig solved trivially. Cheap to
+  keep; expensive to re-create.
+
+**Open sub-decisions (each with a lean and the evidence that would flip it).**
+
+- *Push transport — Mercure first; dedicated WS service is the named fallback.*
+  Lean carried forward from `handoffs/handoff-gating-decisions.md` Decision 2
+  ("prototype Mercure first"). Trigger to switch: *if replay/resume under
+  reconnect cannot be made clean on Mercure* — the JWT scope model, the
+  reconnect-races-replay reconciliation, or the topic fan-out cannot be made
+  reliable without owning the broker. The trigger is "clean resumption under
+  reconnect," not raw throughput. Recorded so future reviewers see the
+  evidence the decision rests on. See
+  `handoffs/handoff-spa-enablement.md` §"The four prerequisites" item 2.
+- *SPA auth — reuse the `form_login` session cookie; mint a token only if a
+  second client (mobile/native) appears.* Lean: cookie. Reasons: same-origin,
+  no new auth surface, matches ADR-020's "console-minted users, password
+  form login," and keeps the SPA and Twig surfaces on one identity story
+  during the migration. Mercure JWT is still minted server-side behind the
+  cookie. Trigger to switch: *the moment a second client exists that cannot
+  carry the cookie* — mobile, native, an external SDK — at which point the
+  token authenticator slots in alongside the session one per ADR-020's
+  already-anticipated multi-authenticator path. See
+  `handoffs/handoff-spa-enablement.md` §"The four prerequisites" item 3 for
+  the full table of options.
+
+**Open questions surfaced.**
+
+- *When does Twig actually retire?* This ADR keeps Twig as the no-JS fallback;
+  the eventual retirement (or the decision to keep it indefinitely as the
+  static-server-rendered shell) is its own follow-up, picked up after the
+  SPA covers the surfaces Twig still serves.
+- *Where does the SPA shell live in URL space?* Working assumption is `/app/*`
+  per the frontend-toolchain notes (Vite `base: '/app/'`). Whether the SPA
+  later promotes to `/` and the Twig surfaces move under `/legacy/*` (or
+  similar) is downstream of how cleanly the cutover lands.
+- *Cooperative cancellation as a sibling event.* ADR-024 / ADR-025 already
+  reserved `assistant_turn_cancelled`; the SPA's `onCancel` is its first
+  surface. The event lands when the loop-side cooperative cancel is wired,
+  which may be in the SPA-enablement slice or in a tight follow-up — recorded
+  here so the link from `onCancel` to the cancelled event is not lost.
 
