@@ -29,6 +29,7 @@ final class EventAppender
         private readonly ConversationEventRepository $events,
         private readonly ProjectionFolder $folder,
         private readonly ClockInterface $clock,
+        private readonly ?ConversationEventPublisher $publisher = null,
     ) {
     }
 
@@ -62,6 +63,12 @@ final class EventAppender
 
             return $event;
         });
+
+        // Fan-out via Mercure happens AFTER the transaction commits — never
+        // before. Subscribers must only see events that are durable. The
+        // publisher itself swallows hub errors so the canonical append
+        // result is always returned to the caller (handoff §2, ADR-026).
+        $this->publisher?->publish($persisted);
 
         return $persisted;
     }

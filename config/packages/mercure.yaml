@@ -1,0 +1,35 @@
+# Mercure SPA push transport (ADR-026 §"Push transport", handoff §2).
+#
+# The Mercure hub is a Compose service in dev/prod; CI / `make test` never
+# stand one up. The bundle is therefore configured to degrade gracefully:
+# when MERCURE_URL is unset, the publisher service we wrap (`App\Mercure\
+# ConversationEventPublisher`) becomes a no-op, mirroring the LLM_BASE_URL
+# "works when unset" pattern from config/services.yaml. The event log
+# remains canonical — Mercure is fan-out only (ADR-024).
+#
+# `subscribe` here is the JWT claim the hub demands from a SUBSCRIBER token,
+# not the URL pattern; we mint per-user, per-tenant subscriber tokens in
+# `App\Mercure\MercureSubscriberTokenFactory` (handoff §3 / §"SPA auth").
+mercure:
+    hubs:
+        default:
+            url: '%env(MERCURE_URL)%'
+            public_url: '%env(MERCURE_PUBLIC_URL)%'
+            jwt:
+                secret: '%env(MERCURE_JWT_SECRET)%'
+                publish: '*'
+
+when@test:
+    # In test the hub is replaced wholesale by RecordingMercureHub
+    # (config/services_test.yaml), so the bundle's auto-built hub is
+    # discarded — and its env-var consumers go with it. Re-declare the URLs
+    # as plain literals so the EnvParameterException ("env vars are never
+    # used") doesn't fire on container compile.
+    mercure:
+        hubs:
+            default:
+                url: 'http://test/.well-known/mercure'
+                public_url: 'http://test/.well-known/mercure'
+                jwt:
+                    secret: 'test-mercure-secret'
+                    publish: '*'

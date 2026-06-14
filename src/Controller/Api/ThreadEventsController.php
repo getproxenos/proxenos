@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controller\Api;
 
+use App\Conversation\ConversationEventEnvelope;
 use App\Entity\ConversationEvent;
 use App\Entity\Membership;
 use App\Entity\User;
@@ -58,6 +59,7 @@ final class ThreadEventsController extends AbstractController
         private readonly MembershipRepository $memberships,
         private readonly ThreadRepository $threads,
         private readonly ConversationEventRepository $events,
+        private readonly ConversationEventEnvelope $envelope,
     ) {
     }
 
@@ -87,7 +89,7 @@ final class ThreadEventsController extends AbstractController
             $rows = \array_slice($rows, 0, $limit);
         }
 
-        $serialized = array_map(fn (ConversationEvent $e) => $this->serializeEvent($e), $rows);
+        $serialized = array_map(fn (ConversationEvent $e) => $this->envelope->toArray($e), $rows);
         // next_after is the cursor for the FOLLOW-UP call; null when there
         // is no follow-up (either the page is empty, or has_more is false).
         // Live updates after this page arrive over Mercure; the SPA only
@@ -124,29 +126,6 @@ final class ThreadEventsController extends AbstractController
         }
 
         return min(self::MAX_LIMIT, $value);
-    }
-
-    /**
-     * Normalize a stored event to the same envelope the live transport
-     * publishes (ADR-026, handoff §1). The shape MUST match what the
-     * Mercure publisher emits — the SPA reducer expects a single union.
-     *
-     * @return array<string, mixed>
-     */
-    private function serializeEvent(ConversationEvent $event): array
-    {
-        return [
-            'id' => $event->getId()->toRfc4122(),
-            'sequence' => $event->getSequence(),
-            'thread_id' => $event->getThreadId()->toRfc4122(),
-            'turn_id' => $event->getTurnId()?->toRfc4122(),
-            'type' => $event->getType()->value,
-            'version' => $event->getVersion(),
-            'actor_type' => $event->getActorType()->value,
-            'actor_id' => $event->getActorId(),
-            'occurred_at' => $event->getOccurredAt()->format(\DateTimeInterface::RFC3339),
-            'payload' => $event->getPayload(),
-        ];
     }
 
     private function resolveMembershipOrAbort(): Membership
