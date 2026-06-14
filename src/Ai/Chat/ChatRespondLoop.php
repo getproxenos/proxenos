@@ -17,6 +17,7 @@ use App\Enum\ActorType;
 use App\Enum\MessageRole;
 use App\Repository\MessagePartRepository;
 use App\Repository\MessageRepository;
+use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
 use Symfony\AI\Platform\Exception\ExceptionInterface as PlatformExceptionInterface;
@@ -92,6 +93,7 @@ final class ChatRespondLoop
         private readonly ModelProfileResolver $resolver,
         private readonly MessageRepository $messages,
         private readonly MessagePartRepository $parts,
+        private readonly EntityManagerInterface $em,
         private readonly LoggerInterface $logger = new NullLogger(),
     ) {
     }
@@ -165,27 +167,56 @@ final class ChatRespondLoop
                     }
                 }
             }
-        } catch (PlatformExceptionInterface $e) {
+        } catch (\Throwable $e) {
             // ADR-025: record the failure on the event log BEFORE rethrowing so
             // the projection moves the Turn (and any partial assistant Message)
-            // to FAILED instead of staying stuck in STREAMING. We send a
-            // sanitized error_summary — never the raw exception message in
-            // production data — and a stable `finish_reason` category. Pass the
-            // assistant message id only if at least one delta has landed; null
-            // otherwise so the fold knows there is no message row yet.
-            $this->appender->append(new EventEnvelope(
-                tenantId: $request->tenantId,
-                threadId: $request->threadId,
-                turnId: $turnId,
-                actorType: ActorType::ASSISTANT,
-                actorId: null,
-                payload: new AssistantTurnFailed(
-                    messageId: $deltaCount > 0 ? $assistantMessageId : null,
-                    finishReason: 'platform_error',
-                    errorSummary: self::summarizeError($e),
-                ),
-            ));
-            throw new \RuntimeException(\sprintf('Model invocation failed for profile "%s": %s', $request->modelProfile, $e->getMessage()), 0, $e);
+            // to FAILED instead of staying stuck in STREAMING. Widened from
+            // PlatformExceptionInterface to \Throwable in response to PR #5
+            // review: a bug in delta handling, a Doctrine error, an unexpected
+            // SDK throwable — none of those are Platform-typed but all of
+            // them leave the same stuck-turn projection unless we land the
+            // failure event here.
+            //
+            // Two guards keep the failure-event append best-effort:
+            //  1. If the EntityManager is already closed (e.g. an earlier
+            //     append in this turn raised a Doctrine error and closed it),
+            //     skip the append — calling appender would just throw again
+            //     and shadow the original.
+            //  2. If the append itself throws for any other reason, swallow
+            //     the SECONDARY error and rethrow the ORIGINAL — masking the
+            //     real cause is the worst failure mode here.
+            if ($this->em->isOpen()) {
+                try {
+                    $this->appender->append(new EventEnvelope(
+                        tenantId: $request->tenantId,
+                        threadId: $request->threadId,
+                        turnId: $turnId,
+                        actorType: ActorType::ASSISTANT,
+                        actorId: null,
+                        payload: new AssistantTurnFailed(
+                            messageId: $deltaCount > 0 ? $assistantMessageId : null,
+                            finishReason: $e instanceof PlatformExceptionInterface ? 'platform_error' : 'internal_error',
+                            errorSummary: self::summarizeError($e),
+                        ),
+                    ));
+                } catch (\Throwable $secondary) {
+                    $this->logger->error('chat.respond: failed to append assistant_turn_failed; original error will be rethrown', [
+                        'profile' => $request->modelProfile,
+                        'original' => self::summarizeError($e),
+                        'secondary' => self::summarizeError($secondary),
+                    ]);
+                }
+            } else {
+                $this->logger->error('chat.respond: EntityManager closed before assistant_turn_failed could be appended', [
+                    'profile' => $request->modelProfile,
+                    'original' => self::summarizeError($e),
+                ]);
+            }
+
+            if ($e instanceof PlatformExceptionInterface) {
+                throw new \RuntimeException(\sprintf('Model invocation failed for profile "%s": %s', $request->modelProfile, $e->getMessage()), 0, $e);
+            }
+            throw $e;
         }
 
         // 6. flush the final cumulative text. Emit at least one delta even if
@@ -277,22 +308,64 @@ final class ChatRespondLoop
     }
 
     /**
-     * Reduce a Platform exception to a short, non-sensitive summary safe to
-     * persist in the event log. We deliberately drop stack traces, provider
-     * URLs, and any tokens that might be embedded in the raw message — the
-     * payload is durable forever and ends up in projection rebuilds and
-     * audit exports. The exception class is the most useful signal; the
-     * first ~140 chars of the message is included as a coarse hint and only
-     * after stripping whitespace.
+     * Reduce a Throwable to a short, non-sensitive summary safe to persist in
+     * the event log forever. The payload ends up in projection rebuilds and
+     * audit exports, so this method actively redacts — it does not just
+     * truncate — before clamping length:
+     *
+     *   - drops stack traces (we never read `getTrace()`);
+     *   - replaces URL query strings with `?[redacted]` (provider URLs often
+     *     carry session tokens / api versions / signed params in the query);
+     *   - masks `sk-…` / `pk-…` / `rk-…` style provider API keys
+     *     (OpenAI/Anthropic/Replicate shapes);
+     *   - masks `Bearer <token>` headers if echoed into a message;
+     *   - masks long contiguous hex / base64 runs (≥24 chars), which is the
+     *     shape of session tokens, signed URLs, and JWT segments.
+     *
+     * Order matters: redact first, then collapse whitespace, then clamp to
+     * 140 chars — clamping first could leave a half-masked token in the
+     * payload.
      */
     private static function summarizeError(\Throwable $e): string
     {
         $class = new \ReflectionClass($e)->getShortName();
-        $msg = trim(preg_replace('/\s+/', ' ', $e->getMessage()) ?? '');
-        if (\strlen($msg) > 140) {
-            $msg = substr($msg, 0, 137).'...';
+        $raw = $e->getMessage();
+        $redacted = self::redactSensitive($raw);
+        $collapsed = trim((string) preg_replace('/\s+/', ' ', $redacted));
+        if (\strlen($collapsed) > 140) {
+            $collapsed = substr($collapsed, 0, 137).'...';
         }
 
-        return '' === $msg ? $class : $class.': '.$msg;
+        return '' === $collapsed ? $class : $class.': '.$collapsed;
+    }
+
+    /**
+     * Apply the redaction rules documented on {@see self::summarizeError()}.
+     * Public-by-test-visibility consideration: stays private; the unit test
+     * exercises it through `summarizeError()`'s observable output.
+     */
+    private static function redactSensitive(string $msg): string
+    {
+        // Drop full URLs (host, path, AND query). Provider URLs leak api
+        // version, deployment names, signed parameters, region, etc. — none
+        // of that helps an operator debug from the event log and all of it
+        // looks like noise in an audit export.
+        $msg = (string) preg_replace('#https?://\S+#i', '[redacted-url]', $msg);
+
+        // Provider API keys: sk-/pk-/rk- followed by a key-shaped run.
+        // (OpenAI/Anthropic/Replicate publish these exact prefixes.)
+        $msg = (string) preg_replace('/\b([sp]k|rk)-[A-Za-z0-9_\-]{6,}/i', '$1-[redacted]', $msg);
+
+        // `Bearer <token>` / `Token <token>` auth headers if echoed.
+        $msg = (string) preg_replace('/\b(Bearer|Token)\s+\S+/i', '$1 [redacted]', $msg);
+
+        // Long contiguous hex / base64 / base64url runs: session tokens, JWT
+        // segments, signed-URL signatures, hash digests. 32-char threshold
+        // avoids clobbering long English/camelCase identifiers (typical
+        // exception class names cap well below 32 chars and UUIDs are broken
+        // up by their dashes).
+        $msg = (string) preg_replace('/[A-Za-z0-9+\/_\-]{32,}={0,2}/', '[redacted]', $msg);
+
+        return $msg;
     }
 }
