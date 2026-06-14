@@ -821,3 +821,17 @@ build the cursor/replay layer on top of the same event log.
   consumer just gets buffered chunks. Once Mercure or a broker lands, this is
   someone else's problem; until then, the Twig client reloads on done so a
   stalled stream is recoverable by retrying the page.
+- *Mid-stream errors leave the assistant Message stuck in `STREAMING`.* The
+  SSE controller emits an SSE `error` frame on `\Throwable`, but by that point
+  the loop has already appended `user_message_submitted` +
+  `assistant_turn_created` (and possibly several deltas) — without
+  `assistant_turn_completed`, the projection's `Message.status` stays
+  `STREAMING` and the `Turn` never moves to `COMPLETED`. The client does not
+  reload on `error`, so on the next page load the user sees a permanently
+  "streaming…" assistant row. Accepted as 0.4 behavior in lieu of
+  `assistant_turn_failed`: the show view now renders streaming-status
+  assistant rows with an `(incomplete — stream did not finish)` marker so the
+  state is at least honest. Pick this up properly when the
+  `assistant_turn_failed` event lands (with a retry-from-here UI, since the
+  user message is durable and re-running the turn from there is the obvious
+  recovery).

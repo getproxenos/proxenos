@@ -40,10 +40,20 @@
         {% endif %}
 
         <ol class="messages" id="messages">
+            {# Assistant rows that render as `streaming` on a GET are always
+               stuck: the dumb JS client reloads on `done` (never mid-stream),
+               so there is no "actively streaming" state to confuse this with.
+               Flag them visibly — ADR-024 accepts this UX cost for 0.4 in
+               lieu of `assistant_turn_failed`. #}
             {% for m in messages %}
                 <li class="message message-{{ m.role }}">
                     <strong>{{ m.role|capitalize }}</strong>
-                    <small>{{ m.created_at|date('Y-m-d H:i:s') }} — {{ m.status }}</small>
+                    <small>
+                        {{ m.created_at|date('Y-m-d H:i:s') }} — {{ m.status }}
+                        {% if not m.is_user and m.status == 'streaming' %}
+                            <em>(incomplete — stream did not finish)</em>
+                        {% endif %}
+                    </small>
                     <pre>{{ m.text }}</pre>
                 </li>
             {% endfor %}
@@ -113,10 +123,21 @@
                     credentials: 'same-origin',
                 });
             } catch (e) {
+                // Safe to retry: fetch() rejects before any HTTP exchange
+                // completes. The streaming controller's loop only runs inside
+                // the StreamedResponse body — that body is only consumed by the
+                // server after the 200 status/headers ship — so a fetch
+                // rejection means the loop never appended any events. The
+                // plain form POST goes to /messages, which is the same loop
+                // but synchronous; one turn either way.
                 form.submit();
                 return;
             }
             if (!response.ok || !response.body) {
+                // Same reasoning: a non-200 response means the controller
+                // bailed before constructing the StreamedResponse (CSRF,
+                // tenant, empty text, auth redirect). The loop never ran, so
+                // resubmitting through the form path can't double-post.
                 form.submit();
                 return;
             }
