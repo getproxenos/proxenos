@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Tests\Support;
 
-use Symfony\AI\Platform\Exception\ExceptionInterface as PlatformExceptionInterface;
 use Symfony\AI\Platform\Exception\RuntimeException as PlatformRuntimeException;
 use Symfony\AI\Platform\Model;
 use Symfony\AI\Platform\ModelCatalog\ModelCatalogInterface;
@@ -44,7 +43,7 @@ final class RecordingInMemoryPlatform implements PlatformInterface
     /** @var list<string>|null */
     private static ?array $nextReplyChunks = null;
 
-    private static ?PlatformExceptionInterface $nextError = null;
+    private static ?\Throwable $nextError = null;
 
     private static int $nextErrorAfterChunks = 0;
 
@@ -108,10 +107,16 @@ final class RecordingInMemoryPlatform implements PlatformInterface
      * Pin the next invoke() to throw. When `$afterChunks` is 0 (the default),
      * the throw fires inside invoke() before any DeferredResult exists —
      * exercises the loop's pre-delta failure path. When `$afterChunks > 0`,
-     * the stream generator yields that many chunks first, then throws —
-     * exercises a mid-stream failure where some deltas were already appended.
+     * the stream generator yields up to that many chunks first, then throws
+     * — exercises a mid-stream failure where some deltas were already
+     * appended. `afterChunks` is clamped to the actual chunk count so an
+     * overshooting test does not silently lose its pinned failure
+     * (PR #5 review).
+     *
+     * Accepts any `\Throwable`, not just `PlatformExceptionInterface`, so the
+     * ADR-025 \Throwable-widened catch path in `ChatRespondLoop` is testable.
      */
-    public function setNextError(?PlatformExceptionInterface $error = null, int $afterChunks = 0): void
+    public function setNextError(?\Throwable $error = null, int $afterChunks = 0): void
     {
         self::$nextError = $error ?? new PlatformRuntimeException('canned platform failure');
         self::$nextErrorAfterChunks = max(0, $afterChunks);
@@ -153,8 +158,16 @@ final class RecordingInMemoryPlatform implements PlatformInterface
      *
      * @return \Generator<TextDelta>
      */
-    private static function generateChunks(array $chunks, ?PlatformExceptionInterface $errorAfter, int $afterCount): \Generator
+    private static function generateChunks(array $chunks, ?\Throwable $errorAfter, int $afterCount): \Generator
     {
+        // Clamp `$afterCount` to the actual chunk count (PR #5 review): a
+        // future test that overshoots used to silently drop the pinned
+        // failure because neither the in-loop `$i === $afterCount` nor the
+        // trailing strict equality fired.
+        if (null !== $errorAfter && $afterCount > \count($chunks)) {
+            $afterCount = \count($chunks);
+        }
+
         $i = 0;
         foreach ($chunks as $chunk) {
             if (null !== $errorAfter && $afterCount > 0 && $i === $afterCount) {
@@ -166,6 +179,10 @@ final class RecordingInMemoryPlatform implements PlatformInterface
             ++$i;
         }
 
+        // After draining: if the pinned error never fired (afterCount equals
+        // the chunk count we just yielded, or afterCount==0 and we should
+        // have thrown on invoke — handled upstream), throw here so the test
+        // sees the failure path.
         if (null !== $errorAfter && $afterCount > 0 && $i >= $afterCount) {
             self::$nextError = null;
             self::$nextErrorAfterChunks = 0;
