@@ -549,3 +549,86 @@ shape per table.
   users; threads/messages/documents inherit the shape but ADR-017's broader question
   (authority, tenant-scoping, collection-path encoding) is still open across the
   registry as a whole.
+
+---
+
+## ADR-022: Event-sourced conversation persistence — v0 implementation
+
+**Decision.** Phase 0.2 lands the canonical event log and its first projections in the
+shape `design-notes/event-sourced-conversations.md` already specifies, with the following
+implementation-level calls pinned for everything that follows (turn loop, streaming,
+branching, connectors).
+
+- *Events first, always.* Every state change for a thread is written to
+  `conversation_events` before any projection row exists; projections are folded from
+  that log. Even the v0 subset (`user_message_submitted`, `assistant_turn_created`,
+  `assistant_content_delta`, `assistant_turn_completed`) goes through this path. Building
+  projection-rows first and retrofitting an event log later is the migration ADR-004
+  exists to prevent — this decision carries into 0.3 (the turn loop appends rather than
+  mutates).
+- *Synchronous inline fold.* `ProjectionFolder::apply()` runs in the same transaction as
+  the event append (`EventAppender::append`). Async fan-out via Symfony Messenger is a
+  later optimization, not a v0 need — the spec guarantees projections are rebuildable, so
+  the consistency window is recoverable.
+- *One folder, two callers.* `ProjectionFolder` is the single source of fold truth used
+  by both the write path and `app:projections:rebuild`. That symmetry is what makes
+  "rebuildable" operational rather than aspirational.
+- *Scoping column is `tenant_id`.* The design doc's `conversation_events.workspace_id`
+  is implemented as `tenant_id`, consistent with ADR-021's commitment that every later
+  table inherits tenancy by carrying a `tenant_id`. ADR-021 explicitly considered and
+  rejected `workspace_id` as the v0 noun; this ADR records the design-doc → schema
+  mapping so the trail stays visible.
+- *Per-thread sequence assignment is `MAX(sequence)+1` inside the append transaction*,
+  with `UNIQUE (thread_id, sequence)` as the safety net. Single-user v0 doesn't engineer
+  a retry loop or advisory lock; both are flagged below for 0.3+ if write concurrency
+  becomes real.
+- *`branch_id` and `idempotency_key` columns ship nullable and unused* per the design
+  doc, so adding branch/retry semantics and connector idempotency in later phases is data,
+  not schema. Same posture as ADR-005's "unused column costs essentially nothing."
+- *Event payload contracts (v1).* The four shapes folded by v0:
+  - `user_message_submitted`: `{ "message_id": uuid, "text": string }`.
+  - `assistant_turn_created`: `{}` (turn_id lives on the envelope).
+  - `assistant_content_delta`: `{ "message_id": uuid, "part_index": int, "text": string }`.
+  - `assistant_turn_completed`: `{ "message_id": uuid, "finish_reason": string }`.
+  Envelope columns (tenant/thread/turn ids, sequence, occurred_at, actor_*) are never
+  duplicated in payload.
+
+**Rationale.** ADR-004 made the high-altitude commitment (event log canonical); this ADR
+turns it into code with the simplest viable shape and pins the decisions that future
+phases would otherwise have to re-litigate one PR at a time. The synchronous inline fold
+keeps the write path one transaction wide and makes the rebuild command testable as the
+same code path the writer takes. Storing payloads as JSONB (not normalized columns)
+honors the design doc's "event schema versioning matters from day one" point: payload
+shape can evolve with `version` while the envelope columns stay stable. Using `tenant_id`
+everywhere matches the rest of the schema and lets cross-table predicates stay uniform —
+the rename from the doc's `workspace_id` is a single sentence in this ADR, not a
+divergence in the schema.
+
+**Ruled out.**
+- *Projections-first, event log later.* Exactly the migration ADR-004 exists to prevent.
+- *Async fold via Messenger from day one.* Adds operational surface (broker, retries,
+  dead-letter) without buying anything until throughput justifies it; rebuildability
+  covers any v0 consistency hiccup.
+- *Per-event-type tables instead of one log.* Loses cross-type sequence ordering for a
+  thread; events are uniformly addressable by `(thread_id, sequence)` and that's the
+  cursor the client sees.
+- *Per-event-type normalized payload columns instead of JSONB.* Locks the schema to the
+  v0 vocabulary; JSONB + `version` lets payloads evolve without migrations.
+- *Multi-thread rebuild in v0.* `app:projections:rebuild <thread>` keeps the v0 command
+  honest; "rebuild all" is a future loop on top.
+
+**Open questions surfaced.**
+- *Delta semantics (replace vs append) once streaming is real.* v0 emits one
+  `assistant_content_delta` per turn carrying the whole text (replace). 0.3 needs to
+  decide whether streaming deltas carry the cumulative or the marginal text — likely
+  marginal-with-append, but the design doc's "append this text span" phrasing leaves it
+  to implementation.
+- *Sequence assignment under concurrency.* MAX+1 in a transaction is fine for one user;
+  multi-writer needs either an advisory lock (`pg_advisory_xact_lock`) or a unique-
+  constraint-violation retry loop. Pick when the second writer actually exists.
+- *Async fan-out.* Messenger-driven projection updates may matter once connector
+  deliveries and embeddings join the fold; until then, synchronous keeps the contract
+  simple.
+- *Snapshots / archival.* The design doc §6 reserves these; v0 keeps canonical events
+  indefinitely with no compaction. Revisit when a thread first crosses a working-set
+  threshold.
