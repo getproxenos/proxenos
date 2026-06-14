@@ -1,0 +1,30 @@
+parameters:
+    # Override the production profile map for the test env so chat.frontier
+    # routes to an in-memory test platform — make test runs key-free.
+    proxenos.model_profiles:
+        chat.frontier:
+            platform: test_inmemory
+            model: claude-sonnet-4-6
+            options:
+                max_tokens: 8192
+        chat.frontier_alt:
+            platform: test_inmemory
+            model: test-alt-model
+            options: {}
+
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+        public: false
+
+    # Public so the test fetches it directly to assert calls / set replies.
+    App\Tests\Support\RecordingInMemoryPlatform:
+        public: true
+
+    # Redefine the resolver with a locator that points at the test platform.
+    App\Ai\ModelProfile\ConfigModelProfileResolver:
+        arguments:
+            $profiles: '%proxenos.model_profiles%'
+            $platforms: !service_locator
+                test_inmemory: '@App\Tests\Support\RecordingInMemoryPlatform'

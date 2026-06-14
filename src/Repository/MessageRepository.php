@@ -40,4 +40,23 @@ final class MessageRepository extends ServiceEntityRepository
     {
         return $this->findOneBy(['turnId' => $turnId]);
     }
+
+    /**
+     * Messages on a thread in position order — the input for ADR-023's dumb
+     * prompt assembly (concat prior turns; ADR-016 budget planning is later).
+     *
+     * @return list<Message>
+     */
+    public function findByThreadOrdered(Uuid $threadId): array
+    {
+        /** @var list<Message> $messages */
+        $messages = $this->createQueryBuilder('m')
+            ->where('m.threadId = :threadId')
+            ->setParameter('threadId', $threadId, 'uuid')
+            ->orderBy('m.position', 'ASC')
+            ->getQuery()
+            ->getResult();
+
+        return $messages;
+    }
 }

@@ -23,4 +23,20 @@ final class MessagePartRepository extends ServiceEntityRepository
     {
         return $this->findOneBy(['messageId' => $messageId, 'position' => $position]);
     }
+
+    /**
+     * @return list<MessagePart>
+     */
+    public function findByMessageOrdered(Uuid $messageId): array
+    {
+        /** @var list<MessagePart> $parts */
+        $parts = $this->createQueryBuilder('p')
+            ->where('p.messageId = :messageId')
+            ->setParameter('messageId', $messageId, 'uuid')
+            ->orderBy('p.position', 'ASC')
+            ->getQuery()
+            ->getResult();
+
+        return $parts;
+    }
 }
