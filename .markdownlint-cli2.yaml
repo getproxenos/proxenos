@@ -1,0 +1,8 @@
+config:
+  line-length: false
+  no-inline-html: false
+
+ignores:
+  - "**/vendor/**"
+  - ".direnv/**"
+  - "frontend/**"

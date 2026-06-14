@@ -1,0 +1,16 @@
+/.env.local
+/.env.*.local
+/vendor/
+/var/
+/.phpunit.cache/
+.phpunit.result.cache
+/.php-cs-fixer.cache
+/.direnv/
+
+# Frontend (decoupled React/assistant-ui SPA)
+/frontend/node_modules/
+# Vite build output — generated, served by FrankenPHP from public/app
+/public/app/
+
+# Claude Code — local/runtime state
+/.claude/settings.local.json

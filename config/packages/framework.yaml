@@ -1,0 +1,28 @@
+framework:
+    secret: '%env(APP_SECRET)%'
+    http_method_override: false
+    handle_all_throwables: true
+
+    # Behind FrankenPHP/Caddy and Coolify's reverse proxy.
+    trusted_proxies: '%env(TRUSTED_PROXIES)%'
+    trusted_headers:
+        - x-forwarded-for
+        - x-forwarded-host
+        - x-forwarded-proto
+        - x-forwarded-port
+        - x-forwarded-prefix
+
+    php_errors:
+        log: true
+
+    # Sessions enabled (form login lands in 0.1; ADR-005/0.1 handoff).
+    session:
+        handler_id: null
+        cookie_secure: auto
+        cookie_samesite: lax
+
+when@test:
+    framework:
+        test: true
+        session:
+            storage_factory_id: session.storage.factory.mock_file

@@ -1,0 +1,29 @@
+parameters:
+
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+
+    App\:
+        resource: '../src/'
+        exclude:
+            - '../src/DependencyInjection/'
+            - '../src/Entity/'
+            - '../src/Kernel.php'
+
+    # symfony/ai generic Platform model catalog (config/packages/ai.yaml). The
+    # bundle's generic branch passes null when none is configured, which the
+    # factory rejects, so wire the bridge's FallbackModelCatalog explicitly.
+    # ADR-019.
+    Symfony\AI\Platform\Bridge\Generic\FallbackModelCatalog: ~
+
+    # App-owned model config sourced from env. isConfigured() guards calls so the
+    # turn loop (0.3) degrades gracefully when LLM_BASE_URL is unset.
+    App\Config\LlmConfig:
+        arguments:
+            $baseUrl: '%env(LLM_BASE_URL)%'
+            $apiKey: '%env(LLM_API_KEY)%'
+            $chatModel: '%env(LLM_CHAT_MODEL)%'
+            $embeddingModel: '%env(LLM_EMBEDDING_MODEL)%'
+            $embeddingDim: '%env(int:EMBEDDING_DIM)%'

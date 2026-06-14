@@ -1,0 +1,6 @@
+# serversideup's install-php-extensions / apt usage is owned by the base image;
+# version-pinning rules don't apply to our thin layer.
+ignored:
+  - DL3008
+  - DL3018
+  - DL3059

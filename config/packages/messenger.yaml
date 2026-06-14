@@ -1,0 +1,23 @@
+framework:
+    messenger:
+        default_bus: messenger.bus.default
+        buses:
+            messenger.bus.default: ~
+        transports:
+            # Async transport is present-but-unused in Phase 0 — compaction and
+            # operations will route onto it later. Doctrine-backed on Postgres;
+            # consume with `messenger:consume async` (the compose `worker` service).
+            async:
+                dsn: '%env(MESSENGER_TRANSPORT_DSN)%'
+                retry_strategy:
+                    max_retries: 3
+        # No message routing yet. The Symfony Scheduler transport (scheduler_default)
+        # is provided by App\Scheduler\DefaultSchedule and consumed by the compose
+        # `scheduler` service with `messenger:consume scheduler_default`.
+        routing: {}
+
+when@test:
+    framework:
+        messenger:
+            transports:
+                async: 'in-memory://'

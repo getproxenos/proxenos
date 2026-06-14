@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Pre-commit hook — run the lint suite. Install with `make setup`.
+set -euo pipefail
+
+if [ ! -d vendor ]; then
+	echo "pre-commit: vendor/ missing — run 'make install' first." >&2
+	exit 1
+fi
+
+exec make lint

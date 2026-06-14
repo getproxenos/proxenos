@@ -1,0 +1,112 @@
+# =============================================================================
+# compose.common.yaml — base topology
+# =============================================================================
+# Services:
+#   app       — FrankenPHP HTTP (worker mode) + built-in Mercure hub
+#   db        — PostgreSQL 16 + pgvector
+#   worker    — messenger:consume async        (present-but-unused in Phase 0)
+#   scheduler — messenger:consume scheduler_default (empty schedule for now)
+#   reactor   — placeholder long-running loop (no event source yet)
+#
+# app uses the frankenphp image variant; worker/scheduler/reactor use the cli
+# variant (a long-lived console worker belongs on the cli image, not under the
+# frankenphp image's web-server supervisor). Both are built from docker-bake.hcl.
+#
+# Env not set here falls back to the image's baked .env defaults. The dev/prod
+# overlays layer on top — see compose.dev.yaml / compose.prod.yaml.
+
+x-app-env: &app-env
+  APP_ENV:
+  APP_SECRET:
+  DATABASE_URL:
+  MESSENGER_TRANSPORT_DSN:
+  MERCURE_URL:
+  MERCURE_PUBLIC_URL:
+  # Caddy reads {env.MERCURE_JWT_SECRET} for the hub; Symfony reads the same var.
+  MERCURE_JWT_SECRET: "${MERCURE_JWT_SECRET:-!ChangeThisDevMercureJwtSecret!}"
+  LLM_BASE_URL:
+  LLM_API_KEY:
+  LLM_CHAT_MODEL:
+  LLM_EMBEDDING_MODEL:
+  EMBEDDING_DIM:
+  TRUSTED_PROXIES:
+
+services:
+  app:
+    image: "${APP_IMAGE:-bug-free-happiness/app:dev}"
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      # FrankenPHP worker mode — keep the kernel resident; symfony/runtime loops
+      # requests through public/index.php.
+      FRANKENPHP_CONFIG: "worker /var/www/html/public/index.php"
+      # Caddy extra directives: (1) FrankenPHP's built-in Mercure hub at
+      # /.well-known/mercure; (2) serve the decoupled SPA built into public/app as
+      # static files, with client-side-routing fallback to its index.html. Caddy
+      # orders `handle` before php_server, so /app/* is served statically and never
+      # falls through to Symfony (which owns every other path).
+      CADDY_SERVER_EXTRA_DIRECTIVES: |
+        mercure {
+          publisher_jwt {env.MERCURE_JWT_SECRET}
+          subscriber_jwt {env.MERCURE_JWT_SECRET}
+          anonymous
+        }
+        @spa path /app /app/*
+        handle @spa {
+          try_files {path} /app/index.html
+          file_server
+        }
+      SSL_MODE: "${SSL_MODE:-off}"
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    image: "${WORKER_IMAGE:-bug-free-happiness/worker:dev}"
+    restart: unless-stopped
+    command: ["php", "bin/console", "messenger:consume", "async", "--time-limit=3600", "--memory-limit=128M", "-v"]
+    environment:
+      <<: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  scheduler:
+    image: "${WORKER_IMAGE:-bug-free-happiness/worker:dev}"
+    restart: unless-stopped
+    command: ["php", "bin/console", "messenger:consume", "scheduler_default", "--time-limit=3600", "--memory-limit=128M", "-v"]
+    environment:
+      <<: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  reactor:
+    image: "${WORKER_IMAGE:-bug-free-happiness/worker:dev}"
+    restart: unless-stopped
+    command: ["php", "bin/console", "app:reactor:run"]
+    environment:
+      <<: *app-env
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-app}"
+      POSTGRES_USER: "${POSTGRES_USER:-app}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-app}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-app}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+volumes:
+  db-data:
