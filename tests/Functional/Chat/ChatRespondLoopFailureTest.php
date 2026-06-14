@@ -193,6 +193,46 @@ final class ChatRespondLoopFailureTest extends KernelTestCase
         self::assertNotSame('', $partsRows[0]->getContent(), 'partial cumulative text from before the throw should survive');
     }
 
+    public function testNonPlatformThrowableStillProducesFailedTurn(): void
+    {
+        // Widened catch (PR #5 review): any Throwable raised after
+        // assistant_turn_created must still append assistant_turn_failed so
+        // the projection does not rot in CREATED/STREAMING.
+        $this->platform->setNextError(new \DomainException('bug in delta handling'));
+
+        $threadId = Uuid::v7();
+        try {
+            $this->loop->execute(new ChatRespondRequest(
+                tenantId: $this->tenant->getId(),
+                userId: $this->user->getId(),
+                threadId: $threadId,
+                userMessageText: 'hello',
+            ));
+            self::fail('loop must rethrow non-platform throwables');
+        } catch (\DomainException $e) {
+            // Non-platform exceptions are NOT wrapped in RuntimeException —
+            // they rethrow as-is so the original type survives at the
+            // HTTP/log layer.
+            self::assertSame('bug in delta handling', $e->getMessage());
+        }
+
+        $events = $this->events->findByThreadOrdered($threadId);
+        $types = array_map(static fn ($e) => $e->getType(), $events);
+        self::assertContains(ConversationEventType::ASSISTANT_TURN_FAILED, $types);
+
+        /** @var \App\Entity\ConversationEvent $failedEvent */
+        $failedEvent = end($events);
+        self::assertSame(ConversationEventType::ASSISTANT_TURN_FAILED, $failedEvent->getType());
+        $payload = $failedEvent->getPayload();
+        self::assertSame('internal_error', $payload['finish_reason'], 'non-Platform throwable gets the internal_error category');
+        self::assertStringContainsString('DomainException', (string) $payload['error_summary']);
+
+        $this->em->clear();
+        $turn = $this->turns->find($failedEvent->getTurnId());
+        self::assertNotNull($turn);
+        self::assertSame(TurnStatus::FAILED, $turn->getStatus());
+    }
+
     public function testRebuildFromEventLogReproducesFailedProjection(): void
     {
         $this->platform->setNextReplyChunks([str_repeat('x', 32), str_repeat('y', 32)]);

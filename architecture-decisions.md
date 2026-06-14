@@ -873,25 +873,40 @@ accepted-stopgap (stuck-STREAMING rows) go away.
    the message_parts row as durable evidence of what was generated before
    the failure.
 
-4. *Producer: `ChatRespondLoop` appends BEFORE rethrowing.* When the loop's
-   `catch (PlatformExceptionInterface)` fires, it appends
-   `assistant_turn_failed` (with `message_id` set iff at least one delta
-   had been emitted, null otherwise) and then rethrows the wrapping
-   `\RuntimeException`. The append happens inside the same transactional
-   write path as every other event — partial failure of the append is itself
-   surfaced as a real exception rather than silently leaving the projection
-   in a half state. The `user_message_submitted` event is never rolled
-   back: a retry-from-here UI needs the user input, and treating the user
-   text as "real once submitted" is consistent with how every other host in
-   this design treats user-authored facts.
+4. *Producer: `ChatRespondLoop` appends BEFORE rethrowing — for any
+   `\Throwable`, not just Platform errors.* When the loop's
+   `catch (\Throwable)` fires, it appends `assistant_turn_failed` (with
+   `message_id` set iff at least one delta had been emitted, null otherwise)
+   and then rethrows. `finish_reason` is `platform_error` for
+   `PlatformExceptionInterface` and `internal_error` for everything else;
+   `PlatformExceptionInterface` rethrows wrapped in `\RuntimeException` so
+   the existing operator-facing error message survives, other throwables
+   rethrow as-is so the original type survives at the HTTP / log layer.
+   The catch was widened in response to PR #5 review: a Doctrine error, a
+   bug in the delta loop, or any unexpected SDK throwable used to leak past
+   the narrow `PlatformExceptionInterface` filter and leave the same stuck
+   turn the event is here to prevent. Two guards keep the failure-event
+   append best-effort: skip when `EntityManagerInterface::isOpen()` is
+   `false` (an earlier append already crashed the EM; a second append would
+   just throw and shadow the original), and on any other secondary throwable
+   from the append itself, log and rethrow the ORIGINAL — masking the real
+   cause is the worst failure mode here. `user_message_submitted` is never
+   rolled back: a retry-from-here UI needs the user input, and treating the
+   user text as "real once submitted" is consistent with how every other
+   host in this design treats user-authored facts.
 
 5. *Sanitization at the producer.* `ChatRespondLoop::summarizeError()`
-   reduces the exception to `<ShortClass>: <first ~140 chars, collapsed
-   whitespace>`. The full exception bubbles to the HTTP layer (and the
-   logger), but only the summary lands in the durable event log — which
-   ends up in projection rebuilds, audit exports, and conversation-history
-   replay forever. Provider response bodies, URL paths, and any embedded
-   credentials are deliberately not in scope for the event payload.
+   reduces the exception to `<ShortClass>: <redacted message, collapsed
+   whitespace, clamped to 140 chars>`. Redaction (not just truncation) runs
+   first so a half-masked secret never lands in the durable payload — see
+   `redactSensitive()`: drop full URLs, mask `sk-…`/`pk-…`/`rk-…` provider
+   keys, mask `Bearer …` / `Token …` headers, mask contiguous hex/base64
+   runs ≥ 32 chars (covers JWTs, signed-URL signatures, session tokens).
+   The full exception still bubbles to the HTTP layer (and the logger), but
+   only the redacted summary lands in the durable event log — which ends up
+   in projection rebuilds, audit exports, and conversation-history replay
+   forever. The redaction rules are covered by a unit test that pins each
+   pattern (`ChatRespondLoopRedactionTest`).
 
 6. *SSE controller is unchanged.* `submitStream()`'s `\Throwable` handler
    already emits an `error` SSE frame; the loop's failure-event append
@@ -903,12 +918,17 @@ accepted-stopgap (stuck-STREAMING rows) go away.
 7. *Tests stay credential-free.* `RecordingInMemoryPlatform` grew a
    `setNextError(?Throwable $error = null, int $afterChunks = 0)` API:
    `afterChunks=0` throws inside `invoke()` before any DeferredResult exists
-   (the pre-delta failure path); `afterChunks=N` yields N stream chunks and
-   then throws (mid-stream failure path). New tests cover: pre-delta
-   failure → Turn FAILED, no assistant Message; mid-stream failure → Turn +
-   Message FAILED with partial text preserved; user message survives in
-   both cases; rebuild-from-event-log reproduces the FAILED projection
-   byte-identically.
+   (the pre-delta failure path); `afterChunks=N` yields up to N stream
+   chunks and then throws (mid-stream failure path; clamped to the actual
+   chunk count so an overshooting test does not silently lose its pinned
+   failure). New tests cover: pre-delta failure → Turn FAILED, no assistant
+   Message; mid-stream failure → Turn + Message FAILED with partial text
+   preserved; non-`PlatformExceptionInterface` Throwable still produces a
+   FAILED turn (the widened-catch contract); user message survives in all
+   cases; rebuild-from-event-log reproduces the FAILED projection
+   byte-identically; sanitized `error_summary` redacts `sk-…`/`Bearer …`/
+   URL/long-base64 patterns
+   (`ChatRespondLoopRedactionTest`).
 
 **Rationale.** Phase 0.4 documented the stuck-STREAMING UX as an accepted
 cost in lieu of this event. The cost wasn't huge but it was real — every
