@@ -446,3 +446,106 @@ foundation the eventual tenant/admin-policy model router (ADR-014/018) grows fro
   Bundle; ADR-010 already adopts MCP for tool-shaped capabilities. Whether these align (the
   bundle becomes the MCP client/server substrate) or stay separate is worth settling before
   tools are built.
+
+---
+
+## ADR-020: v0 authentication — console-minted users, password form login
+
+**Decision.** v0 has no web-facing authentication surface beyond a login form. Users are
+**minted via `bin/console app:user:create`** (which also attaches an owner `Membership` to
+a named `Tenant`). The web app authenticates with **Symfony Security `form_login`** over a
+password hash stored on `users.password_hash`, session-based, single firewall, single role
+(`ROLE_USER`). There is no registration UI, no password reset, no email verification, no
+remember-me, and no OIDC/SSO. Identity is **UUIDv7** (time-ordered, matching Hypomnema's
+choice), surfaced at the application boundary as **`core://users/{uuid}`**. The user ↔
+tenant relation is modeled as a `Membership(user, tenant, role)` join even though v0 is
+exactly one user, one tenant — directly applying ADR-005's "permissions modeled even if
+all owner" so a future second user or tenant is a row insert, not a schema redesign.
+
+**Rationale.** The long-running open question — "OIDC from day one, or password-first
+with SSO later?" — assumed there *was* a self-service auth surface to design. The
+console-minted approach dissolves the question for v0: with no public registration and
+exactly one operator, password-form-login is the cheapest thing that meets the bar, and
+adding OIDC later is additive (a new authenticator, not a migration of identity data).
+ADR-010's host-mediated extension model keeps the door open for an auth provider that
+plugs in over JSON-RPC once the abstraction is right, but that conversation belongs to
+the multi-user phase. UUIDv7 over autoincrement keeps the id format consistent across the
+typed-entity providers ADR-013 will register and lets references quote a stable url-safe
+identifier from the first row. The `Membership` join is the load-bearing piece: every
+downstream table inherits `tenant_id` from this pattern, and v0 not having that join is
+the kind of "single user now, refactor later" choice ADR-005 already ruled out.
+
+**Ruled out.**
+- *OIDC/SSO from day one (Clerk/Auth0/Supabase Auth or self-hosted Keycloak/Hydra).*
+  Lots of integration surface for a single operator with no team; v0 lacks the multi-user
+  problem these solve. Reachable later as an additive authenticator or as an extension.
+- *No auth at all behind a private network.* Even single-user, the artifact-write surface
+  (ADR-017) makes "anything reachable can write" a worse failure mode than a login form.
+- *Folding tenant identity into `users` (no `Membership`).* Cheapest now, most expensive
+  later — exactly the trap ADR-005 calls out. The empty owner column costs nothing.
+- *Autoincrement integer ids.* Cheap, but burns the alignment with the typed-entity
+  registry's URL-safe identifier shape and forces a later id-format migration.
+- *Symfony's `make:user` / `make:auth` scaffolding without explicit `core://` surfacing.*
+  The generators produce a working login but bury the URI shape this system's references
+  depend on; minting it ourselves keeps the surface deliberate.
+
+**Open questions surfaced.**
+- *OIDC adoption path.* When multi-user lands, does OIDC arrive as a second Symfony
+  authenticator alongside form-login, as an auth provider extension over ADR-010, or as a
+  full replacement that retires password login? Likely the first or second; deferred.
+- *Per-extension capability grants.* ADR-010 mentions trust tiers; v0's "everything is
+  ROLE_USER" is the placeholder. The shape of capability grants (per-extension manifests?
+  signed?) is left to the multi-user / multi-extension phase.
+- *Account recovery without email.* If the console-minted operator loses their password,
+  the recovery path is "re-run `app:user:create`" — fine for one operator; not a strategy
+  for multi-user.
+
+---
+
+## ADR-021: `Tenant` terminology and shape for v0 (account = tenant = workspace)
+
+**Decision.** v0 collapses **account**, **tenant**, and **workspace** into a single
+`Tenant` entity in its own `tenants` table. The schema and code say `Tenant`; UI copy
+may say "account" or "workspace" where that reads better. Tenant identity is **UUIDv7**
+surfaced as **`core://tenants/{uuid}`** — the URI form already used by the
+operation-registry and request-context shapes. Future split paths — `tenant` becoming an
+org/billing boundary that contains one or more `workspace` containers — remain a
+migration (add a `workspaces` table, point membership at workspace, leave `tenant` for
+billing) rather than a redesign. Every later table inherits tenancy by carrying a
+`tenant_id` from this pattern.
+
+**Rationale.** The design docs use "tenant" / "workspace" interchangeably; the
+event-table reference uses `workspace_id`; the informal framing uses "account." Picking
+one name for v0 — and only one row — prevents the trap where a half-built schema has
+both `tenant_id` and `workspace_id` columns enforcing nothing. Putting it in its own
+table (instead of folding it into `users` or `memberships`) makes the future split a
+schema migration on a known table, not a redesign of the join shape. The `core://`
+URI form was already provisional from ADR-017's "canonical `core://` URI form" open
+question; settling it for tenant + user here gives every downstream URI kind
+(threads, messages, documents) a precedent to follow rather than re-litigating the
+shape per table.
+
+**Ruled out.**
+- *Three separate tables now (`accounts`, `tenants`, `workspaces`).* No row would
+  meaningfully differ across them in v0; the shape adds JOINs and ambiguity without
+  buying anything until multi-tenant + multi-workspace concerns are real.
+- *Inline tenant on `users` (no `tenants` table).* Saves one table; loses the column
+  to hang every downstream `tenant_id` off, and makes the future tenant/workspace
+  split a much harder refactor.
+- *`Workspace` as the v0 noun.* Considered for alignment with the event table's
+  `workspace_id` column, but "tenant" reads better in security/membership context and
+  the downstream rename is mechanical. UI copy stays flexible.
+- *Skipping `Membership` and joining `users → tenants` directly.* Same trap as ADR-020's
+  "fold tenant into users" — see there.
+
+**Open questions surfaced.**
+- *Tenant vs. workspace split criteria.* Which axis triggers the split — first paying
+  customer (billing boundary), first multi-workspace user, or first cross-workspace
+  share? Deferred until any of those is actually on the roadmap.
+- *Tenant slug semantics.* v0 treats `slug` as a human-typed kebab identifier with a
+  shape constraint. Whether it becomes URL-routable (`/{tenant}/...`) or stays
+  console-only is a step-5 routing decision.
+- *Canonical `core://` URI form for other entity kinds.* This ADR settles tenants and
+  users; threads/messages/documents inherit the shape but ADR-017's broader question
+  (authority, tenant-scoping, collection-path encoding) is still open across the
+  registry as a whole.

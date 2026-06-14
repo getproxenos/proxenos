@@ -28,6 +28,7 @@
         "symfony/routing": "^8.0",
         "symfony/runtime": "^8.0",
         "symfony/scheduler": "^8.1",
+        "symfony/security-bundle": "^8.0",
         "symfony/twig-bundle": "^8.0",
         "symfony/uid": "^8.0",
         "symfony/validator": "^8.0",
