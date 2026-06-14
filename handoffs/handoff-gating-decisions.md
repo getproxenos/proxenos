@@ -4,35 +4,23 @@ Commit the two decisions that gate the build, so the vertical slice (step 5) sta
 fixed ground. They're independent of the remaining design work and of each other, but both
 gate ADR-011's deployment topology, so resolve them in one session.
 
-## Decision 1 — Iris: replace or coexist?
+## Decision 1 — Iris: replace (decided)
 
-Gates ADR-011 (deployment topology). Migration is off the table — the license permits
-educational study but prohibits redistribution and competing-product creation. The real
-choice is **replace** (clean Symfony rebuild, Iris as reference only) vs. **coexist**
-(Iris as one upstream provider consumed alongside Hypomnema).
+**Decided — replace.** This project is a clean Symfony rebuild that replaces day-to-day
+reliance on Iris; Iris remains a study reference only (the license permits educational
+study, not redistribution or competing-product creation, and migration was never available).
+
+**Ruled out — coexist** (consuming a running Iris instance as an upstream provider alongside
+Hypomnema). The two systems run independently and never integrate — there is no Iris
+provider and no data/operation flow between them. The license question this would have
+raised (whether consuming a deployed instance as a provider is permitted) is therefore moot.
+
+**ADR-011 topology consequence:** the Compose stack reserves no slot for an Iris provider
+process, and no Iris adapter / reference-envelope conformance work is needed.
 
 ### Inputs
-- `reference/iris/iris-deep-dive.md` and the convergence/divergence document.
-- ADR-006 (personal-first), ADR-011 (deployment), the Iris license terms.
-
-### What to pressure-test
-The notes lean **coexist** given how strongly Iris's shape converges with your ADRs. Before
-committing, answer:
-
-1. **The load-bearing license question.** Coexist means consuming a *running* Iris instance
-   as a provider over its existing surface. Does the license permit consuming a deployed
-   instance as a data/operation provider, as distinct from studying its code? This is the
-   gate — flag it explicitly and resolve it before the architecture question.
-2. **Does Iris expose a consumable surface,** or would coexist require wrapping it (and does
-   wrapping cross the "competing product" line)?
-3. **What does coexist cost at the wire boundary** — an Iris adapter conforming to the
-   step-1 reference envelope and the ADR-010 provider contract? Is that adapter clean, or
-   does Iris's internal model leak?
-
-### To record
-The decision, the ruled-out option, and the ADR-011 topology consequence (room for an Iris
-provider process — or not). If the license question (1) resolves against consuming a
-running instance, **replace** wins by default and the rest is moot.
+- ADR-006 (personal-first), ADR-011 (deployment). `reference/iris/iris-deep-dive.md`
+  remains a study reference.
 
 ---
 
@@ -66,8 +54,8 @@ service"). Record the v0 pick, the trigger, and the ADR-011 topology slot.
 
 ## Definition of done
 
-- [ ] Iris license question (Decision 1, point 1) answered in writing.
-- [ ] Replace-or-coexist decided, with ruled-out option and rationale.
+- [x] Iris license question (Decision 1) — moot: replace means no running Iris instance is consumed.
+- [x] Replace-or-coexist decided (replace), with ruled-out option and rationale.
 - [ ] Streaming transport v0 choice + explicit fallback trigger recorded.
 - [ ] ADR-011 amended with both topology consequences.
 - [ ] `open-questions.md` updated: both "Architecture-shaped" items marked resolved.
