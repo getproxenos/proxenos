@@ -113,34 +113,18 @@ final class ChatController extends AbstractController
     #[Route('/{threadId}/messages', name: 'submit', methods: ['POST'], requirements: ['threadId' => '[0-9a-f-]{36}'])]
     public function submit(string $threadId, Request $request): Response
     {
-        $membership = $this->resolveMembershipOrAbort();
-        $threadUuid = Uuid::fromString($threadId);
-
-        $token = (string) $request->request->get('_csrf_token', '');
-        if (!$this->isCsrfTokenValid('chat', $token)) {
-            throw $this->createAccessDeniedException('Invalid CSRF token.');
-        }
-
-        $existing = $this->threads->find($threadUuid);
-        if (null !== $existing && !$existing->getTenantId()->equals($membership->getTenant()->getId())) {
-            throw $this->createAccessDeniedException('Thread does not belong to current tenant.');
-        }
-
-        $text = trim((string) $request->request->get('text', ''));
-        if ('' === $text) {
+        $inputs = $this->validateChatSubmit($threadId, $request);
+        if ('' === $inputs->text) {
             $this->addFlash('error', 'Message text cannot be empty.');
 
             return $this->redirectToRoute('chat_show', ['threadId' => $threadId]);
         }
 
-        /** @var User $user */
-        $user = $this->getUser();
-
         $this->loop->execute(new ChatRespondRequest(
-            tenantId: $membership->getTenant()->getId(),
-            userId: $user->getId(),
-            threadId: $threadUuid,
-            userMessageText: $text,
+            tenantId: $inputs->tenantId,
+            userId: $inputs->userId,
+            threadId: $inputs->threadUuid,
+            userMessageText: $inputs->text,
         ));
 
         return $this->redirectToRoute('chat_show', ['threadId' => $threadId]);
@@ -160,28 +144,15 @@ final class ChatController extends AbstractController
     #[Route('/{threadId}/messages/stream', name: 'submit_stream', methods: ['POST'], requirements: ['threadId' => '[0-9a-f-]{36}'])]
     public function submitStream(string $threadId, Request $request): Response
     {
-        $membership = $this->resolveMembershipOrAbort();
-        $threadUuid = Uuid::fromString($threadId);
-
-        $token = (string) $request->request->get('_csrf_token', '');
-        if (!$this->isCsrfTokenValid('chat', $token)) {
-            throw $this->createAccessDeniedException('Invalid CSRF token.');
-        }
-
-        $existing = $this->threads->find($threadUuid);
-        if (null !== $existing && !$existing->getTenantId()->equals($membership->getTenant()->getId())) {
-            throw $this->createAccessDeniedException('Thread does not belong to current tenant.');
-        }
-
-        $text = trim((string) $request->request->get('text', ''));
-        if ('' === $text) {
+        $inputs = $this->validateChatSubmit($threadId, $request);
+        if ('' === $inputs->text) {
             return new Response('Message text cannot be empty.', Response::HTTP_BAD_REQUEST);
         }
 
-        /** @var User $user */
-        $user = $this->getUser();
-        $tenantId = $membership->getTenant()->getId();
-        $userId = $user->getId();
+        $tenantId = $inputs->tenantId;
+        $userId = $inputs->userId;
+        $threadUuid = $inputs->threadUuid;
+        $text = $inputs->text;
 
         $response = new StreamedResponse(function () use ($tenantId, $userId, $threadUuid, $text): void {
             $emit = static function (string $type, array $data): void {
@@ -222,6 +193,39 @@ final class ChatController extends AbstractController
         return $response;
     }
 
+    /**
+     * Shared CSRF + tenancy + identity resolution for the form and SSE submit
+     * endpoints. Throws an access-denied exception (handled by the firewall)
+     * on auth/CSRF/tenancy failure. The empty-text case stays per-endpoint:
+     * the form path flashes + redirects, the SSE path returns 400 — both are
+     * still user-visible decisions the helper deliberately doesn't make.
+     */
+    private function validateChatSubmit(string $threadId, Request $request): ChatSubmitInputs
+    {
+        $membership = $this->resolveMembershipOrAbort();
+        $threadUuid = Uuid::fromString($threadId);
+
+        $token = (string) $request->request->get('_csrf_token', '');
+        if (!$this->isCsrfTokenValid('chat', $token)) {
+            throw $this->createAccessDeniedException('Invalid CSRF token.');
+        }
+
+        $existing = $this->threads->find($threadUuid);
+        if (null !== $existing && !$existing->getTenantId()->equals($membership->getTenant()->getId())) {
+            throw $this->createAccessDeniedException('Thread does not belong to current tenant.');
+        }
+
+        /** @var User $user */
+        $user = $this->getUser();
+
+        return new ChatSubmitInputs(
+            tenantId: $membership->getTenant()->getId(),
+            userId: $user->getId(),
+            threadUuid: $threadUuid,
+            text: trim((string) $request->request->get('text', '')),
+        );
+    }
+
     private function resolveMembershipOrAbort(): Membership
     {
         /** @var User $user */
@@ -232,5 +236,20 @@ final class ChatController extends AbstractController
         }
 
         return $membership;
+    }
+}
+
+/**
+ * Validated inputs returned by {@see ChatController::validateChatSubmit()}.
+ * `text` is trimmed but may be empty — the empty-text policy is per-endpoint.
+ */
+final readonly class ChatSubmitInputs
+{
+    public function __construct(
+        public Uuid $tenantId,
+        public Uuid $userId,
+        public Uuid $threadUuid,
+        public string $text,
+    ) {
     }
 }
