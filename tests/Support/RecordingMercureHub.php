@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Support;
 
 use Symfony\Component\Mercure\HubInterface;
+use Symfony\Component\Mercure\Jwt\LcobucciFactory;
 use Symfony\Component\Mercure\Jwt\StaticTokenProvider;
 use Symfony\Component\Mercure\Jwt\TokenFactoryInterface;
 use Symfony\Component\Mercure\Jwt\TokenProviderInterface;
@@ -25,9 +26,22 @@ final class RecordingMercureHub implements HubInterface
     /** @var list<Update> */
     private array $published = [];
 
+    private readonly TokenFactoryInterface $factory;
+
+    public function __construct()
+    {
+        // A real LcobucciFactory keyed on a fixed test secret so the
+        // SpaBootstrap test can decode the minted JWT and assert claim
+        // shape end-to-end (no real hub round-trip needed).
+        $this->factory = new LcobucciFactory('test-mercure-secret-test-mercure-secret-32+');
+    }
+
     public function getUrl(): string
     {
-        return 'http://test/.well-known/mercure';
+        // Matches the WebTestCase host (`localhost`) so the bundle's
+        // Authorization helper can build a same-second-level-domain
+        // cookie without throwing.
+        return 'http://localhost/.well-known/mercure';
     }
 
     public function getPublicUrl(): string
@@ -42,7 +56,7 @@ final class RecordingMercureHub implements HubInterface
 
     public function getFactory(): ?TokenFactoryInterface
     {
-        return null;
+        return $this->factory;
     }
 
     public function publish(Update $update): string
