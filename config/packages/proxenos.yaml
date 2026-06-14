@@ -1,0 +1,27 @@
+# Proxenos host-owned model-profile map (ADR-014, ADR-023).
+#
+# Each profile maps a stable, operation-facing name (e.g. chat.frontier) to:
+#   - platform: the symfony/ai Platform service key in the locator wired in
+#     config/services.yaml (currently: anthropic, generic.default).
+#   - model:    the concrete provider model id (model id strings are operator
+#     concerns per ADR-008; never user-facing).
+#   - options:  default options passed to Platform::invoke() — e.g. max_tokens
+#     for the Anthropic bridge (its default of 1000 is too low for chat).
+#
+# DoD swap verification (ADR-023): the resolver must be able to swap providers
+# behind chat.frontier via config alone. The chat.frontier_alt profile points
+# at the second bridge to make that explicit and testable. A future operation
+# (chat with --profile=chat.frontier_alt) can exercise it; for v0 it documents
+# that the seam exists.
+parameters:
+    proxenos.model_profiles:
+        chat.frontier:
+            platform: anthropic
+            model: claude-sonnet-4-6
+            options:
+                max_tokens: 8192
+        chat.frontier_alt:
+            platform: generic.default
+            model: '%env(LLM_CHAT_MODEL)%'
+            options:
+                temperature: 0.0

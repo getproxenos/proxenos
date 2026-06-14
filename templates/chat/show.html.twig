@@ -1,0 +1,61 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Chat — Proxenos{% endblock %}
+
+{% block body %}
+    <header>
+        <h1>Proxenos chat</h1>
+        <p>
+            <a href="{{ path('chat_new') }}">New thread</a>
+            &middot;
+            <a href="{{ path('me') }}">Account</a>
+        </p>
+    </header>
+
+    <aside>
+        <h2>Threads</h2>
+        {% if thread_list is empty %}
+            <p><em>No threads yet — send a message below to start one.</em></p>
+        {% else %}
+            <ul>
+                {% for t in thread_list %}
+                    <li>
+                        <a href="{{ path('chat_show', {threadId: t.id}) }}"><code>{{ t.id }}</code></a>
+                        <small>updated {{ t.updatedAt|date('Y-m-d H:i:s') }}</small>
+                    </li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    </aside>
+
+    <section>
+        <h2>Thread <code>{{ thread_id }}</code></h2>
+
+        {% for flash in app.flashes('error') %}
+            <p style="color: red;">{{ flash }}</p>
+        {% endfor %}
+
+        {% if not thread_exists %}
+            <p><em>New thread — submit a message to materialize it.</em></p>
+        {% endif %}
+
+        <ol class="messages">
+            {% for m in messages %}
+                <li class="message message-{{ m.role }}">
+                    <strong>{{ m.role|capitalize }}</strong>
+                    <small>{{ m.created_at|date('Y-m-d H:i:s') }} — {{ m.status }}</small>
+                    <pre>{{ m.text }}</pre>
+                </li>
+            {% endfor %}
+        </ol>
+
+        <form method="post" action="{{ path('chat_submit', {threadId: thread_id}) }}">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token('chat') }}">
+            <label for="text">Your message</label>
+            <textarea id="text" name="text" rows="4" cols="80" required autofocus></textarea>
+            <div>
+                <button type="submit">Send</button>
+            </div>
+        </form>
+    </section>
+{% endblock %}

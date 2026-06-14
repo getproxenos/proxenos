@@ -18,6 +18,13 @@ services:
     # ADR-019.
     Symfony\AI\Platform\Bridge\Generic\FallbackModelCatalog: ~
 
+    # Two platforms are configured (anthropic + generic.default), so the bundle
+    # no longer auto-aliases PlatformInterface. Restore the alias to the generic
+    # bridge so the Phase 0.0 LlmClient/AiSmokeCommand keep working unchanged.
+    # The Phase 0.3 turn loop uses the explicit model-profile resolver instead
+    # (ADR-023), which carries each Platform via the service locator below.
+    Symfony\AI\Platform\PlatformInterface: '@ai.platform.generic.default'
+
     # App-owned model config sourced from env. isConfigured() guards calls so the
     # turn loop (0.3) degrades gracefully when LLM_BASE_URL is unset.
     App\Config\LlmConfig:
@@ -27,3 +34,16 @@ services:
             $chatModel: '%env(LLM_CHAT_MODEL)%'
             $embeddingModel: '%env(LLM_EMBEDDING_MODEL)%'
             $embeddingDim: '%env(int:EMBEDDING_DIM)%'
+
+    # Model-profile resolver (ADR-014/023). Reads the profile map from
+    # config/packages/proxenos.yaml (loaded as the proxenos.model_profiles
+    # parameter) and resolves a profile name like "chat.frontier" to a Platform
+    # + concrete model id + per-call options. Swapping providers behind a
+    # profile is a config edit; no code changes.
+    App\Ai\ModelProfile\ConfigModelProfileResolver:
+        arguments:
+            $profiles: '%proxenos.model_profiles%'
+            $platforms: !service_locator
+                anthropic: '@ai.platform.anthropic'
+                generic.default: '@ai.platform.generic.default'
+    App\Ai\ModelProfile\ModelProfileResolver: '@App\Ai\ModelProfile\ConfigModelProfileResolver'

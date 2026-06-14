@@ -632,3 +632,81 @@ divergence in the schema.
 - *Snapshots / archival.* The design doc §6 reserves these; v0 keeps canonical events
   indefinitely with no compaction. Revisit when a thread first crosses a working-set
   threshold.
+
+## ADR-023: Phase 0.3 minimal turn loop — host-owned model-profile resolver, operation-compatible loop service, Twig v0 UI
+
+**Decision.** Phase 0.3 lands the first running thing — submit a message, call a model, persist
+the turn as events, fold to the projection, display the thread — on top of three load-bearing
+shapes that the rest of Proxenos will reuse:
+
+1. *Model-profile resolver as the real seam.* `App\Ai\ModelProfile\ModelProfileResolver` is a
+   thin host-owned interface; `ConfigModelProfileResolver` implements it from a config map
+   under `proxenos.model_profiles` (config/packages/proxenos.yaml). Callers ask for a profile
+   by name (`chat.frontier`); the resolver dereferences the profile's `platform:` key against a
+   service locator of named `symfony/ai` Platforms wired in config/services.yaml. Per ADR-008
+   the user never picks a model; selection is operator/config-level. Per ADR-014 the same
+   resolver answers for every later operation (extraction, summarization, embeddings) — and we
+   verify the swap-by-config path by also registering `chat.frontier_alt` pointing at a second
+   bridge so changing the production default is a one-line edit.
+2. *Operation-compatible loop service.* `App\Ai\Chat\ChatRespondLoop` is a plain Symfony
+   service whose call/return shape mirrors ADR-014's `core.chat.respond` operation: input is a
+   request context + the caller-supplied user message + a model-profile reference; output is the
+   assistant text + a token-usage snapshot. The ADR-014 registry is *not* built here — only the
+   shape. Wrapping the loop in the registry later is additive, not a refactor.
+3. *Minimal Twig UI over the React SPA.* The chat UI is a server-rendered Twig view consistent
+   with Phase 0.1's `MeController` pattern (`/chat`, `/chat/{threadId}`, CSRF-protected POST).
+   ADR-009 still applies — assistant-ui is the long-term frontend — but Phase 0.1 deferred SPA
+   auth wiring, and shipping that in the same PR that introduces the turn loop would explode
+   scope. The SPA picks back up when streaming and Mercure subscription land in 0.4.
+
+The loop appends exactly four events per turn through Phase 0.2's `EventAppender`:
+`user_message_submitted`, `assistant_turn_created`, `assistant_content_delta` (carrying the
+full non-streaming text per the ADR-022 v1 payload), `assistant_turn_completed`. Projections
+are folded synchronously by the same `ProjectionFolder` used by `app:projections:rebuild` —
+no code path duplication.
+
+Prompt assembly is deliberately dumb (handoff §"Decision 4"): read all prior messages from
+the projection in position order, map role → `Symfony\AI\Platform\Message\Message` factories,
+build a `MessageBag`. No budget planner (ADR-016), no summarization, no truncation. Anthropic
+is the v0 default behind `chat.frontier` (`claude-sonnet-4-6`, current per the `claude-api`
+skill consulted at PR time); the generic OpenAI-compatible bridge from Phase 0.0 stays
+configured side-by-side so swapping providers is one config edit.
+
+Tests are credential-free: `Symfony\AI\Platform\Test\InMemoryPlatform` ships with
+`symfony/ai-platform` and accepts a closure for the canned reply. `config/services_test.yaml`
+rebinds `chat.frontier` to a recording wrapper around it, so `make test` is green without an
+`ANTHROPIC_API_KEY`. Live verification: documented as a manual step on the PR when a key is
+available — does *not* gate merge.
+
+**Rationale.** The resolver is the seam every later operation needs; deferring it until ADR-014
+lands the full registry would force every 0.3-era operation to hardcode a Platform. The
+operation-compatible loop shape costs nothing now and saves a refactor later. The Twig UI
+respects the handoff's "minimal web UI" and the existing 0.1 server-rendered shell.
+
+**Ruled out.**
+- *Building ADR-014's full operation registry now.* The handoff explicitly defers it; only the
+  call shape compatibility is in scope.
+- *Wiring the React SPA's auth in 0.3.* The SPA's `ExternalStoreRuntime` adapter is real work
+  that needs Mercure subscription + JWT minting; pairing that with the turn loop in one PR
+  would muddle two distinct decisions.
+- *Streaming in v0.* `assistant_content_delta` carries the full text once; once streaming
+  lands, the same event splits per chunk. The fold semantics in `ProjectionFolder`
+  (replace-at-(message_id, part_index)) already supports both.
+- *Resolver-as-tagged-services discovery.* Discovery would push profile names into the service
+  definitions; keeping them in `proxenos.model_profiles` keeps the swap-by-config DoD honest.
+- *Dropping the Phase 0.0 `LlmClient`.* `LlmClient`/`AiSmokeCommand` still work — registering
+  the Anthropic platform means the bundle no longer auto-aliases `PlatformInterface`, so
+  config/services.yaml restores the alias to `ai.platform.generic.default` explicitly. The
+  chat loop bypasses `LlmClient` entirely; both coexist until 0.4 retires the older surface.
+
+**Open questions surfaced.**
+- *Delta semantics under real streaming.* Picked up from ADR-022's open questions; 0.4 needs
+  to decide cumulative-text-replace vs marginal-text-append once SSE/Mercure deltas exist.
+- *Token-usage projection.* The loop captures `TokenUsageInterface` and logs it but does not
+  persist it to a projection yet. Once `accounting.usage_source` from ADR-014's operation
+  envelope is real, this lands as a `usage` projection keyed by turn_id.
+- *Per-tenant model-profile overrides.* The resolver interface accommodates them; the v0
+  config map does not. Add when the second tenant exists.
+- *System prompt.* v0 sends no system prompt — the dumb concat starts at the first user turn.
+  Once prompt declarations (ADR-018) or any host policy needs to inject one, the loop is the
+  obvious place; for now keeping it absent makes the swap-by-config DoD trivially honest.

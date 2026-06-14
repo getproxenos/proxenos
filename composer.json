@@ -11,6 +11,7 @@
         "doctrine/doctrine-migrations-bundle": "^4.0",
         "doctrine/orm": "^3.6",
         "monolog/monolog": "^3.8",
+        "symfony/ai-anthropic-platform": "^0.8",
         "symfony/ai-bundle": "^0.8",
         "symfony/ai-generic-platform": "^0.8",
         "symfony/ai-platform": "^0.8",
