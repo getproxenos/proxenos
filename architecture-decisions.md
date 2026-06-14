@@ -837,12 +837,119 @@ build the cursor/replay layer on top of the same event log.
   the loop has already appended `user_message_submitted` +
   `assistant_turn_created` (and possibly several deltas) — without
   `assistant_turn_completed`, the projection's `Message.status` stays
-  `STREAMING` and the `Turn` never moves to `COMPLETED`. The client does not
-  reload on `error`, so on the next page load the user sees a permanently
-  "streaming…" assistant row. Accepted as 0.4 behavior in lieu of
-  `assistant_turn_failed`: the show view now renders streaming-status
-  assistant rows with an `(incomplete — stream did not finish)` marker so the
-  state is at least honest. Pick this up properly when the
-  `assistant_turn_failed` event lands (with a retry-from-here UI, since the
-  user message is durable and re-running the turn from there is the obvious
-  recovery).
+  `STREAMING` and the `Turn` never moves to `COMPLETED`. Resolved in
+  **ADR-025** by `assistant_turn_failed`. The Phase 0.4 stopgap marker
+  `(incomplete — stream did not finish)` was dropped once the FAILED status
+  became real.
+
+## ADR-025: `assistant_turn_failed` event — honest failure state on the projection
+
+**Decision.** ADR-022 reserved `assistant_turn_failed` as a fifth event type;
+Phase 0.5 lands it as the smallest possible surface that makes ADR-024's
+accepted-stopgap (stuck-STREAMING rows) go away.
+
+1. *Event vocabulary expands by exactly one.* `ConversationEventType` adds
+   `assistant_turn_failed`. The four-event ADR-022 contract becomes a
+   five-event contract; no other event shapes change.
+
+2. *Payload contract.*
+   `assistant_turn_failed`:
+   `{ "message_id": uuid|null, "finish_reason": string, "error_summary": string }`.
+   `message_id` is nullable because failure may strike before any
+   `assistant_content_delta` was appended — i.e. before an assistant Message
+   row exists. `finish_reason` is a short category (`platform_error` in v0;
+   `cancelled`, `safety_filter`, `rate_limited`, etc. when the producers
+   need to distinguish). `error_summary` is sanitized — never a stack trace,
+   never a provider URL or token, capped length at the producer. The
+   envelope's `turn_id` identifies the failed turn.
+
+3. *Fold semantics.* `ProjectionFolder::foldAssistantTurnFailed` marks the
+   Turn `FAILED` (`Turn::markFailed`) and — if `message_id` is non-null and
+   the row exists — marks the assistant Message `FAILED`
+   (`Message::markFailed`). `MessageStatus::FAILED` and `TurnStatus::FAILED`
+   were already reserved in the enums in Phase 0.2 specifically for this
+   case; landing the event is data, not a schema migration. Any partial
+   cumulative text from earlier `assistant_content_delta` events stays on
+   the message_parts row as durable evidence of what was generated before
+   the failure.
+
+4. *Producer: `ChatRespondLoop` appends BEFORE rethrowing.* When the loop's
+   `catch (PlatformExceptionInterface)` fires, it appends
+   `assistant_turn_failed` (with `message_id` set iff at least one delta
+   had been emitted, null otherwise) and then rethrows the wrapping
+   `\RuntimeException`. The append happens inside the same transactional
+   write path as every other event — partial failure of the append is itself
+   surfaced as a real exception rather than silently leaving the projection
+   in a half state. The `user_message_submitted` event is never rolled
+   back: a retry-from-here UI needs the user input, and treating the user
+   text as "real once submitted" is consistent with how every other host in
+   this design treats user-authored facts.
+
+5. *Sanitization at the producer.* `ChatRespondLoop::summarizeError()`
+   reduces the exception to `<ShortClass>: <first ~140 chars, collapsed
+   whitespace>`. The full exception bubbles to the HTTP layer (and the
+   logger), but only the summary lands in the durable event log — which
+   ends up in projection rebuilds, audit exports, and conversation-history
+   replay forever. Provider response bodies, URL paths, and any embedded
+   credentials are deliberately not in scope for the event payload.
+
+6. *SSE controller is unchanged.* `submitStream()`'s `\Throwable` handler
+   already emits an `error` SSE frame; the loop's failure-event append
+   happens before the rethrow so the projection is honest by the time the
+   client reloads. The Twig view drops the Phase-0.4 `(incomplete)` synthetic
+   marker and just renders the status verbatim — `failed` is now the
+   accurate state, no UI guesswork required.
+
+7. *Tests stay credential-free.* `RecordingInMemoryPlatform` grew a
+   `setNextError(?Throwable $error = null, int $afterChunks = 0)` API:
+   `afterChunks=0` throws inside `invoke()` before any DeferredResult exists
+   (the pre-delta failure path); `afterChunks=N` yields N stream chunks and
+   then throws (mid-stream failure path). New tests cover: pre-delta
+   failure → Turn FAILED, no assistant Message; mid-stream failure → Turn +
+   Message FAILED with partial text preserved; user message survives in
+   both cases; rebuild-from-event-log reproduces the FAILED projection
+   byte-identically.
+
+**Rationale.** Phase 0.4 documented the stuck-STREAMING UX as an accepted
+cost in lieu of this event. The cost wasn't huge but it was real — every
+mid-stream failure left a misleading projection row indefinitely. The fix is
+small and constrained: one event type, two `markFailed` methods on entities
+whose status enums already had `FAILED`, one new fold branch, ten lines in
+the loop. Most of the surface area is in the test platform extension and
+the new test coverage, not in the production code. The five-event contract
+is the natural next stop on the ADR-022 trajectory; deferring further means
+every other producer that wants to record failure has to either invent its
+own event type or live with the same stopgap.
+
+**Ruled out.**
+- *Synthetic `assistant_turn_completed` with `finish_reason=error`.* Mixes
+  two distinct lifecycle states; downstream consumers (replay, retry UI,
+  audit) would have to inspect `finish_reason` to tell completed-ok from
+  completed-with-error. Cleaner to make failure a separate event.
+- *Retain raw exception text or stack trace in the payload.* Sensitive,
+  unbounded, and ends up in audit exports forever. Summary lives in the
+  payload; full detail stays in the runtime logger.
+- *Roll back `user_message_submitted` on failure.* The user authored the
+  text; treating it as ephemeral would break retry-from-here UIs and the
+  "conversation is a referenceable entity" stance from ADR-004.
+- *Distinct events per failure family
+  (`assistant_turn_cancelled`, `assistant_turn_rate_limited`, …).* Premature
+  partitioning; the `finish_reason` string is the extension point until a
+  consumer actually needs to dispatch on category.
+- *Retry policy / cooperative cancellation / `assistant_turn_cancelled` in
+  this phase.* Out of scope. The failed-event lays the groundwork; the
+  retry/cancel UX is its own surface and depends on the assistant-ui SPA
+  arriving anyway.
+
+**Open questions surfaced.**
+- *Per-tenant or per-profile sanitization rules.* `summarizeError()` is one
+  global rule; some tenants (compliance-flagged) may need stricter (strip
+  everything but class name) or looser (include provider request id). Pick
+  up when the second tenant exists.
+- *Retry-from-here UI.* The data model now supports it (user message
+  durable, turn FAILED, profile resolver swappable). Surface lands with the
+  SPA work.
+- *Cooperative cancellation as a sibling event.* `assistant_turn_cancelled`
+  fits in the same fold shape; the loop just needs a cancellation signal to
+  trip the same path. Not built; spec'd for the SPA cancellation work.
+
