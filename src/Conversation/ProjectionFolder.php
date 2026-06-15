@@ -6,6 +6,7 @@ namespace App\Conversation;
 
 use App\Conversation\Event\Payload\AssistantContentDelta;
 use App\Conversation\Event\Payload\AssistantTurnCompleted;
+use App\Conversation\Event\Payload\AssistantTurnFailed;
 use App\Conversation\Event\Payload\UserMessageSubmitted;
 use App\Entity\ConversationEvent;
 use App\Entity\Message;
@@ -53,6 +54,7 @@ final class ProjectionFolder
             ConversationEventType::ASSISTANT_TURN_CREATED => $this->foldAssistantTurnCreated($event),
             ConversationEventType::ASSISTANT_CONTENT_DELTA => $this->foldAssistantContentDelta($event),
             ConversationEventType::ASSISTANT_TURN_COMPLETED => $this->foldAssistantTurnCompleted($event),
+            ConversationEventType::ASSISTANT_TURN_FAILED => $this->foldAssistantTurnFailed($event),
         };
 
         $this->em->flush();
@@ -227,6 +229,47 @@ final class ProjectionFolder
 
         $turn->markCompleted($event->getSequence(), $event->getOccurredAt());
         $message->markComplete($event->getSequence(), $event->getOccurredAt());
+
+        $thread = $this->ensureThread(
+            $event->getThreadId(),
+            $event->getTenantId(),
+            null,
+            $event->getOccurredAt(),
+        );
+        $thread->recordEvent($event->getSequence(), $event->getOccurredAt());
+    }
+
+    private function foldAssistantTurnFailed(ConversationEvent $event): void
+    {
+        $rawMessageId = $event->getPayload()['message_id'] ?? null;
+        $payload = new AssistantTurnFailed(
+            null !== $rawMessageId ? Uuid::fromString((string) $rawMessageId) : null,
+            (string) ($event->getPayload()['finish_reason'] ?? 'error'),
+            (string) ($event->getPayload()['error_summary'] ?? ''),
+        );
+
+        $turnId = $event->getTurnId();
+        if (null === $turnId) {
+            throw new \LogicException('assistant_turn_failed requires envelope.turn_id.');
+        }
+
+        $turn = $this->turns->find($turnId);
+        if (null === $turn) {
+            throw new \LogicException(sprintf('assistant_turn_failed references turn %s with no projection row.', $turnId->toRfc4122()));
+        }
+
+        $turn->markFailed($event->getSequence(), $event->getOccurredAt());
+
+        // The assistant Message row only exists if at least one content_delta
+        // landed before the failure. Loop-level failures before any delta
+        // (resolver / prompt-assembly throw) leave message_id null in the
+        // payload — fold becomes a turn-only state change in that case.
+        if (null !== $payload->messageId) {
+            $message = $this->messages->find($payload->messageId);
+            if (null !== $message) {
+                $message->markFailed($event->getSequence(), $event->getOccurredAt());
+            }
+        }
 
         $thread = $this->ensureThread(
             $event->getThreadId(),

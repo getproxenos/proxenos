@@ -108,6 +108,13 @@ class Turn
         $this->bumpSequence($sequence);
     }
 
+    public function markFailed(int $sequence, \DateTimeImmutable $failedAt): void
+    {
+        $this->status = TurnStatus::FAILED;
+        $this->completedAt = $failedAt;
+        $this->bumpSequence($sequence);
+    }
+
     private function bumpSequence(int $sequence): void
     {
         if ($sequence > $this->lastSequence) {

@@ -40,20 +40,17 @@
         {% endif %}
 
         <ol class="messages" id="messages">
-            {# Assistant rows that render as `streaming` on a GET are always
-               stuck: the dumb JS client reloads on `done` (never mid-stream),
-               so there is no "actively streaming" state to confuse this with.
-               Flag them visibly — ADR-024 accepts this UX cost for 0.4 in
-               lieu of `assistant_turn_failed`. #}
+            {# ADR-025: assistant turns that hit a platform error are folded to
+               `failed` by the assistant_turn_failed event. Rendering the status
+               verbatim is now honest — no more synthetic "(incomplete)" marker
+               (that one assumed the only stuck state was an unhandled
+               STREAMING). A rare lingering `streaming` row would mean the
+               failure event itself never landed (e.g. a crash inside
+               EventAppender) and is still surfaced via the raw status text. #}
             {% for m in messages %}
-                <li class="message message-{{ m.role }}">
+                <li class="message message-{{ m.role }} message-status-{{ m.status }}">
                     <strong>{{ m.role|capitalize }}</strong>
-                    <small>
-                        {{ m.created_at|date('Y-m-d H:i:s') }} — {{ m.status }}
-                        {% if not m.is_user and m.status == 'streaming' %}
-                            <em>(incomplete — stream did not finish)</em>
-                        {% endif %}
-                    </small>
+                    <small>{{ m.created_at|date('Y-m-d H:i:s') }} — {{ m.status }}</small>
                     <pre>{{ m.text }}</pre>
                 </li>
             {% endfor %}
