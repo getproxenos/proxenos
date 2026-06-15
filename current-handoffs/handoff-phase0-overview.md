@@ -28,7 +28,7 @@ Phase 0 inserts *before* step 5, and it pulls one earlier decision forward:
 
 1. **Step 4 · Decision 2 (streaming transport)** — move ahead of everything. It determines
    what the repo scaffolds (Mercure hub in compose vs. FrankenPHP as the app server vs. a
-   dedicated service). Decision 1 (Iris replace/coexist) stays where it was; the foundation
+   dedicated service). Decision 1 (Iris: replace — decided) is settled and the foundation
    doesn't need it.
 2. **Phase 0.0 → 0.1 → 0.2 → 0.3** in order. 0.1 precedes 0.2 because conversation events
    carry `workspace_id`; 0.2 precedes 0.3 because the loop writes to the event store.
