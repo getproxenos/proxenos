@@ -17,6 +17,7 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Symfony\Component\Uid\Uuid;
@@ -112,6 +113,95 @@ final class ChatController extends AbstractController
     #[Route('/{threadId}/messages', name: 'submit', methods: ['POST'], requirements: ['threadId' => '[0-9a-f-]{36}'])]
     public function submit(string $threadId, Request $request): Response
     {
+        $inputs = $this->validateChatSubmit($threadId, $request);
+        if ('' === $inputs->text) {
+            $this->addFlash('error', 'Message text cannot be empty.');
+
+            return $this->redirectToRoute('chat_show', ['threadId' => $threadId]);
+        }
+
+        $this->loop->execute(new ChatRespondRequest(
+            tenantId: $inputs->tenantId,
+            userId: $inputs->userId,
+            threadId: $inputs->threadUuid,
+            userMessageText: $inputs->text,
+        ));
+
+        return $this->redirectToRoute('chat_show', ['threadId' => $threadId]);
+    }
+
+    /**
+     * SSE companion to {@see self::submit()}. Same CSRF + tenancy checks; same
+     * `ChatRespondLoop` call. The difference is that this endpoint streams
+     * cumulative-text deltas back as `text/event-stream` events while the loop
+     * runs, so the Twig thread view can render text progressively.
+     *
+     * Deliberately dumb: no cursor, no replay, no reconnect — those belong to
+     * the deferred assistant-ui SPA (`design-notes/streaming-runtime-notes.md`
+     * §3). On reconnect mid-stream, the client just reloads the thread page;
+     * the durable event log already has every persisted delta.
+     */
+    #[Route('/{threadId}/messages/stream', name: 'submit_stream', methods: ['POST'], requirements: ['threadId' => '[0-9a-f-]{36}'])]
+    public function submitStream(string $threadId, Request $request): Response
+    {
+        $inputs = $this->validateChatSubmit($threadId, $request);
+        if ('' === $inputs->text) {
+            return new Response('Message text cannot be empty.', Response::HTTP_BAD_REQUEST);
+        }
+
+        $tenantId = $inputs->tenantId;
+        $userId = $inputs->userId;
+        $threadUuid = $inputs->threadUuid;
+        $text = $inputs->text;
+
+        $response = new StreamedResponse(function () use ($tenantId, $userId, $threadUuid, $text): void {
+            $emit = static function (string $type, array $data): void {
+                echo 'data: '.json_encode(['type' => $type] + $data, \JSON_THROW_ON_ERROR)."\n\n";
+                // Guard ob_flush(): it warns when no PHP output buffer is active
+                // (the common case for a Symfony StreamedResponse), and @ would
+                // mask any real flush error.
+                if (ob_get_level() > 0) {
+                    ob_flush();
+                }
+                flush();
+            };
+
+            try {
+                $result = $this->loop->execute(new ChatRespondRequest(
+                    tenantId: $tenantId,
+                    userId: $userId,
+                    threadId: $threadUuid,
+                    userMessageText: $text,
+                    onDelta: static function (string $cumulative) use ($emit): void {
+                        $emit('delta', ['text' => $cumulative]);
+                    },
+                ));
+                $emit('done', [
+                    'thread_id' => (string) $result->threadId,
+                    'turn_id' => (string) $result->turnId,
+                    'text' => $result->assistantText,
+                ]);
+            } catch (\Throwable $e) {
+                $emit('error', ['message' => $e->getMessage()]);
+            }
+        });
+
+        $response->headers->set('Content-Type', 'text/event-stream');
+        $response->headers->set('Cache-Control', 'no-cache');
+        $response->headers->set('X-Accel-Buffering', 'no'); // disable nginx/Caddy proxy buffering
+
+        return $response;
+    }
+
+    /**
+     * Shared CSRF + tenancy + identity resolution for the form and SSE submit
+     * endpoints. Throws an access-denied exception (handled by the firewall)
+     * on auth/CSRF/tenancy failure. The empty-text case stays per-endpoint:
+     * the form path flashes + redirects, the SSE path returns 400 — both are
+     * still user-visible decisions the helper deliberately doesn't make.
+     */
+    private function validateChatSubmit(string $threadId, Request $request): ChatSubmitInputs
+    {
         $membership = $this->resolveMembershipOrAbort();
         $threadUuid = Uuid::fromString($threadId);
 
@@ -125,24 +215,15 @@ final class ChatController extends AbstractController
             throw $this->createAccessDeniedException('Thread does not belong to current tenant.');
         }
 
-        $text = trim((string) $request->request->get('text', ''));
-        if ('' === $text) {
-            $this->addFlash('error', 'Message text cannot be empty.');
-
-            return $this->redirectToRoute('chat_show', ['threadId' => $threadId]);
-        }
-
         /** @var User $user */
         $user = $this->getUser();
 
-        $this->loop->execute(new ChatRespondRequest(
+        return new ChatSubmitInputs(
             tenantId: $membership->getTenant()->getId(),
             userId: $user->getId(),
-            threadId: $threadUuid,
-            userMessageText: $text,
-        ));
-
-        return $this->redirectToRoute('chat_show', ['threadId' => $threadId]);
+            threadUuid: $threadUuid,
+            text: trim((string) $request->request->get('text', '')),
+        );
     }
 
     private function resolveMembershipOrAbort(): Membership
@@ -155,5 +236,20 @@ final class ChatController extends AbstractController
         }
 
         return $membership;
+    }
+}
+
+/**
+ * Validated inputs returned by {@see ChatController::validateChatSubmit()}.
+ * `text` is trimmed but may be empty — the empty-text policy is per-endpoint.
+ */
+final readonly class ChatSubmitInputs
+{
+    public function __construct(
+        public Uuid $tenantId,
+        public Uuid $userId,
+        public Uuid $threadUuid,
+        public string $text,
+    ) {
     }
 }

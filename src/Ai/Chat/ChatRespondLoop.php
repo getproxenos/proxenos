@@ -21,39 +21,67 @@ use Psr\Log\NullLogger;
 use Symfony\AI\Platform\Exception\ExceptionInterface as PlatformExceptionInterface;
 use Symfony\AI\Platform\Message\Message as PlatformMessage;
 use Symfony\AI\Platform\Message\MessageBag;
+use Symfony\AI\Platform\Result\Stream\Delta\TextDelta;
 use Symfony\AI\Platform\TokenUsage\TokenUsageInterface;
 use Symfony\Component\Uid\Uuid;
 
 /**
- * Phase 0.3 minimal turn loop. Shape-compatible with ADR-014's
+ * Phase 0.4 streaming turn loop. Shape-compatible with ADR-014's
  * `core.chat.respond` operation so adopting the registry later is additive,
  * not a refactor (handoff §"Decision 2 — Operation seam").
  *
- * Flow (non-streaming v0):
+ * Flow:
  *   1. append `user_message_submitted` — fold creates Thread + user Message
- *   2. read prior messages on the thread in position order (the dumb prompt
+ *   2. read prior messages on the thread in position order (dumb prompt
  *      assembly per handoff §"Decision 4")
  *   3. resolve the model profile (`chat.frontier` -> Platform + model + opts)
  *   4. append `assistant_turn_created` — fold creates the Turn row
- *   5. invoke the Platform; capture full text + token usage if surfaced
- *   6. append `assistant_content_delta` — payload carries the FULL response
- *      text in v0; once 0.3-streaming lands, deltas split per chunk
- *   7. append `assistant_turn_completed` — marks Turn + Message COMPLETE
+ *   5. invoke the Platform in STREAMING mode (`stream: true`) and walk the
+ *      text-delta generator. Provider tokens are accumulated into a running
+ *      cumulative buffer and emitted as coalesced `assistant_content_delta`
+ *      events at UI cadence (see {@see self::DELTA_FLUSH_CHARS} /
+ *      {@see self::DELTA_FLUSH_MS}) — never one event per provider token
+ *      (`design-notes/streaming-runtime-notes.md` §5).
+ *   6. emit a final flush so the last cumulative text is durable, then
+ *      `assistant_turn_completed` — marks Turn + Message COMPLETE
  *
- * Why a single delta carries the whole text in v0: ADR-022 v1 payload contract
- * already specifies `assistant_content_delta` as the surface for assistant
- * text; folding it once as the cumulative-text-replace form (which the
- * existing `ProjectionFolder` already implements) lets the streaming layer
- * append more deltas later without changing the projection contract.
+ * Delta semantics (ADR-024). Each `assistant_content_delta` carries the
+ * **cumulative text-so-far** at the same `part_index` (0). `ProjectionFolder`
+ * folds this as "replace the part content," which means progressively longer
+ * text lands naturally and projection rebuild/replay stay idempotent — replaying
+ * any prefix-then-suffix arrives at the same final state. Marginal/append
+ * semantics were considered and ruled out for that reason.
  *
- * Errors: when the Platform throws, the user_message_submitted event has
- * already been appended (and the projection updated). We do NOT roll it back;
- * the user's message is real and should survive — even if the assistant
- * generation failed. The exception bubbles to the caller; ADR-022's
- * `assistant_turn_failed` event is left as Phase 0.4+ work.
+ * Token usage: the Platform's StreamListener promotes a `TokenUsage` delta into
+ * the deferred result's metadata when the stream completes; we read it after
+ * the generator is exhausted, same as the non-streaming path used to.
+ *
+ * Live HTTP streaming: callers (e.g. the SSE endpoint) can pass an `onDelta`
+ * callback into {@see ChatRespondRequest}; it fires with the current cumulative
+ * text on every coalesced flush. The callback is best-effort progress, not the
+ * source of truth — the event log is.
+ *
+ * Errors: when the Platform throws, the `user_message_submitted` event has
+ * already been appended (and projection updated). We do NOT roll it back; the
+ * user's message is real and should survive — even if assistant generation
+ * failed. The exception bubbles to the caller; ADR-022's `assistant_turn_failed`
+ * event stays Phase 0.5+ work.
  */
 final class ChatRespondLoop
 {
+    /**
+     * Flush a coalesced delta when the cumulative buffer has grown by this
+     * many characters since the last flush. Tuned for typing-cadence UI updates
+     * (~10–30 deltas/second on a fast provider).
+     */
+    private const int DELTA_FLUSH_CHARS = 32;
+
+    /**
+     * Wall-clock fallback: flush at least this often so a slow provider that
+     * emits few-character tokens does not look frozen.
+     */
+    private const int DELTA_FLUSH_MS = 80;
+
     public function __construct(
         private readonly EventAppender $appender,
         private readonly ModelProfileResolver $resolver,
@@ -93,17 +121,70 @@ final class ChatRespondLoop
             payload: new AssistantTurnCreated(),
         ));
 
-        // 5. invoke the model
+        // 5. invoke the model in streaming mode and emit coalesced deltas
+        $assistantMessageId = Uuid::v7();
+        $options = array_merge($resolved->options, ['stream' => true]);
+        $cumulative = '';
+        $lastFlushedLen = 0;
+        $lastFlushAtMs = $this->nowMs();
+        $deltaCount = 0;
+
+        $emit = function (string $text) use ($request, $turnId, $assistantMessageId, &$deltaCount, &$lastFlushedLen, &$lastFlushAtMs): void {
+            $this->appender->append(new EventEnvelope(
+                tenantId: $request->tenantId,
+                threadId: $request->threadId,
+                turnId: $turnId,
+                actorType: ActorType::ASSISTANT,
+                actorId: null,
+                payload: new AssistantContentDelta($assistantMessageId, 0, $text),
+            ));
+            ++$deltaCount;
+            $lastFlushedLen = \strlen($text);
+            $lastFlushAtMs = $this->nowMs();
+        };
+
         try {
-            $platformResult = $resolved->platform->invoke($resolved->modelId, $messageBag, $resolved->options);
-            $assistantText = $platformResult->asText();
+            $deferred = $resolved->platform->invoke($resolved->modelId, $messageBag, $options);
+            foreach ($deferred->asTextStream() as $delta) {
+                if (!$delta instanceof TextDelta) {
+                    continue;
+                }
+                $cumulative .= $delta->getText();
+
+                $grewBy = \strlen($cumulative) - $lastFlushedLen;
+                $sinceMs = $this->nowMs() - $lastFlushAtMs;
+                if ($grewBy >= self::DELTA_FLUSH_CHARS || ($grewBy > 0 && $sinceMs >= self::DELTA_FLUSH_MS)) {
+                    $emit($cumulative);
+                    if (null !== $request->onDelta) {
+                        ($request->onDelta)($cumulative);
+                    }
+                }
+            }
         } catch (PlatformExceptionInterface $e) {
             throw new \RuntimeException(\sprintf('Model invocation failed for profile "%s": %s', $request->modelProfile, $e->getMessage()), 0, $e);
         }
 
+        // 6. flush the final cumulative text. Emit at least one delta even if
+        // empty so the assistant message materializes and assistant_turn_completed
+        // has something to mark COMPLETE.
+        if (0 === $deltaCount || \strlen($cumulative) > $lastFlushedLen) {
+            $emit($cumulative);
+            if (null !== $request->onDelta) {
+                ($request->onDelta)($cumulative);
+            }
+        }
+
         $usage = null;
-        // asText() triggered DeferredResult::getResult(), which populates metadata
-        $tokenUsage = $platformResult->getResult()->getMetadata()->get('token_usage');
+        // Streamed token-usage path: `DeferredResult::getResult()` registers a
+        // `TokenUsageStreamListener` against the underlying `StreamResult` (see
+        // vendor/symfony/ai-platform/src/Result/DeferredResult.php:60). The
+        // listener catches `TokenUsageInterface` deltas mid-stream and writes
+        // them onto the result's metadata. `DeferredResult::asStream()`'s
+        // `finally` block then copies the result metadata onto the deferred
+        // itself once the generator is exhausted (DeferredResult.php:168) — so
+        // by the time the `foreach` above has fully drained, the value lives
+        // here, not on `getResult()->getMetadata()`.
+        $tokenUsage = $deferred->getMetadata()->get('token_usage');
         if ($tokenUsage instanceof TokenUsageInterface) {
             $usage = $tokenUsage;
             $this->logger->info('chat.respond usage', [
@@ -113,17 +194,6 @@ final class ChatRespondLoop
                 'completion_tokens' => $tokenUsage->getCompletionTokens(),
             ]);
         }
-
-        // 6. assistant_content_delta -> creates assistant Message + part, full text
-        $assistantMessageId = Uuid::v7();
-        $this->appender->append(new EventEnvelope(
-            tenantId: $request->tenantId,
-            threadId: $request->threadId,
-            turnId: $turnId,
-            actorType: ActorType::ASSISTANT,
-            actorId: null,
-            payload: new AssistantContentDelta($assistantMessageId, 0, $assistantText),
-        ));
 
         // 7. assistant_turn_completed -> marks Turn + Message COMPLETE
         $this->appender->append(new EventEnvelope(
@@ -139,7 +209,7 @@ final class ChatRespondLoop
             threadId: $request->threadId,
             turnId: $turnId,
             assistantMessageId: $assistantMessageId,
-            assistantText: $assistantText,
+            assistantText: $cumulative,
             usage: $usage,
         );
     }
@@ -175,5 +245,10 @@ final class ChatRespondLoop
         }
 
         return $buffer;
+    }
+
+    private function nowMs(): int
+    {
+        return (int) (microtime(true) * 1000);
     }
 }
