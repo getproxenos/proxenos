@@ -239,7 +239,7 @@ The **`custom_renderer` escape hatch** lives at the envelope level (ADR-012's es
 **Open questions surfaced.**
 - Temporal-field semantics — `created`/`modified` ride in `card_fields`/`detail_fields` as bare pointers, so a renderer can't tell they deserve relative-time display ("3 days ago"). A per-field `format` hint or a `timestamps` slot would fix it; not adopted yet.
 - Field labeling — `card_fields`/`detail_fields` are bare pointers with no human label, which gets awkward for `/frontmatter/some_key`. A `{ field, label }` form may be needed later.
-- Whether `resolved_reference` is the universal shape with the plain triple as its degenerate (always-resolved) case, or whether the two stay distinct.
+- ~~Whether `resolved_reference` is the universal shape with the plain triple as its degenerate (always-resolved) case, or whether the two stay distinct.~~ *Resolved by **ADR-013a** — enriched-as-universal; see `design-notes/reference-envelope.md`.*
 - The canonical `hypomnema://` URI form is provisional — explicit vs. empty authority, the ignored `:name` debug suffix, and remote-host handling all need settling when Hypomnema links are designed.
 - Prompt-serialization, expansion-depth, and cache-invalidation policy for resolved query members — deferred to transclusion design (see `design-notes/transclusion-notes.md`).
 - Memory lifecycle and recall policy — Iris-style promotion from Memory to Truth, truth crystallization, conflict handling, pinned-truth recall, and prompt section ordering all fit around ADR-013 entities but are not presentation concerns. They should be expressed through extension augmentations / prompt serialization hooks, not schema fields. See `design-notes/memory-primitives-walkthrough.md`.
@@ -972,4 +972,87 @@ own event type or live with the same stopgap.
 - *Cooperative cancellation as a sibling event.* `assistant_turn_cancelled`
   fits in the same fold shape; the loop just needs a cancellation signal to
   trip the same path. Not built; spec'd for the SPA cancellation work.
+
+## ADR-013a: Universal reference envelope as first-class; expansion-policy slot reserved (amends ADR-013)
+
+**Decision.** ADR-013 left open *"whether `resolved_reference` is the universal shape
+with the plain triple as its degenerate (always-resolved) case, or whether the two
+stay distinct."* This amendment resolves it: the enriched `resolved_reference`
+envelope is the **universal cross-provider reference**, and the plain
+`{ provider, type, id }` triple is its degenerate, always-resolved case (`resolved:
+true`, no `marker`, no `snapshot`). One envelope, two populations. Backlinks, Context
+Set reference members, search result `ref`s, citations, body sidecar entries, and any
+future site that points at an entity all serialize through this single shape.
+
+The envelope fields are:
+
+- `provider`, `type`, `id` — the routing tuple. `id` is **opaque to the host**,
+  parseable only by its owning provider, so the ADR-010 boundary stays clean.
+- `resolved` — universal boolean. `false` is a first-class state every provider may
+  return (broken `[[wiki-link]]`, deleted GitHub repo, stale search hit). Renderers
+  and prompt serializers get one broken-link affordance and one rule each.
+- `marker` — **optional, content-origin only**. Present when the reference originated
+  from an inline marker in a content field (`[[…]]`, `@mention`, `#hash`); absent for
+  structural references.
+- `label`, `snapshot` — optional render-time conveniences. `snapshot` is a partial
+  hydrated entity a producer may include to save a follow-up fetch; the host **may
+  always ignore** and re-fetch by `id`. Never authoritative.
+- `target` — optional resolved-instance handle (Note body sidecar parity).
+- `expansion` — **reserved slot** with enum `pill | summary | full`. v0 honors
+  `pill` only; `summary` and `full` are reserved values producers may emit but a v0
+  host downgrades to `pill` silently. This slot is the load-bearing guardrail: it is
+  the difference between reviving transclusion as an **additive ADR** (the slot
+  exists; transclusion lights up `summary`/`full` behavior) and a **wire-format
+  migration** (the slot does not exist; every durable reference has to be
+  re-versioned). Reserving costs one optional field; not reserving costs a migration.
+
+See `design-notes/reference-envelope.md` for the full spec — the five questions
+answered with ruled-out alternatives, the field-by-field reference, the cross-provider
+`id` contract, the three canonical serialized examples (resolved / dangling /
+snapshot-bearing), and the downstream consumer cross-links.
+
+**Rationale.** Three near-duplicate shapes were in flight before this amendment: the
+plain triple (backlinks, Context Set members, search `ref`), the `resolved_reference`
+wrapper (Note body sidecar), and the recurring open "may a reference carry a partial
+hydrated snapshot" question (search-shape §7). Each held a piece of the picture; none
+subsumed the others. Collapsing to one envelope keeps resolver/renderer dispatch
+uniform (always `provider` + `type` first, then walk the rest by checked-presence) and
+removes the "which shape does this site use?" question from every downstream consumer.
+The opaque-id rule keeps ADR-010's host ↔ extension boundary clean as new providers
+declare their own URI grammars. Reserving the expansion-policy slot now is the
+cheapest possible insurance against the transclusion ADR turning into a wire-format
+migration.
+
+**Ruled out.**
+- *Keep the plain triple and `resolved_reference` distinct.* Forces every consumer to
+  branch on shape before dispatch; pushes the "is this dangling?" question into a
+  shape the type system says cannot dangle.
+- *Treat `id` as a structured URI the host may parse.* Smuggles provider knowledge
+  into core; reopens every new URI grammar as a host-level concern.
+- *Always-present `marker`.* Structural references would carry a marker they cannot
+  populate meaningfully; renderers would re-invent the content-origin discriminator
+  that optional-marker gives for free.
+- *Dangling is Note-specific.* Every other provider re-invents a "thing's gone"
+  sentinel. Universal `resolved: false` dissolves the duplication.
+- *Snapshots are never carried.* Cleanest spec, worst render ergonomics — every
+  list-of-references view pays a round-trip per row for data the producer already had.
+- *Snapshots as a separate handle / sidecar.* Duplicates the envelope work; forces
+  every consumer that wants the snapshot to thread two structures through together;
+  re-introduces the "two shapes" problem this amendment dissolves.
+- *Skip the `expansion` slot and revisit during the transclusion ADR.* Exactly the
+  failure mode the slot avoids — turns transclusion into a wire-format migration.
+
+**Open questions surfaced.**
+- *Transclusion ADR.* Defines what `expansion: "summary"` and `"full"` mean
+  concretely (depth, cycle detection, cache invalidation, budget integration). Until
+  then, the reserved values downgrade. See `design-notes/transclusion-notes.md`.
+- *`snapshot` field shape.* Specified abstractly as "the ADR-013 presentation-hints'
+  input domain for `type`." Whether to publish a per-type snapshot schema or leave it
+  open-objected is deferred to the first consumer that needs cross-validation.
+- *Dangling-target `id` conventions.* v0 leaves the convention to each provider's
+  adapter; promote to a host-level convention only if cross-provider dedup of
+  dangling references becomes important.
+- *Cross-provider type overlay.* Out of scope here — the envelope is per-provider;
+  the overlay question stays open in `open-questions.md`.
+
 
