@@ -35,6 +35,12 @@ security:
           roles: PUBLIC_ACCESS
         - path: ^/me
           roles: ROLE_USER
+        # SPA API surface (ADR-026): same firewall as Twig, but unauthenticated
+        # calls get JSON 401 instead of a 302 redirect to /login (matches the
+        # handoff §3 interface contract — the SPA handles 401 by routing to
+        # the server-rendered login).
+        - path: ^/api
+          roles: ROLE_USER
 
 when@test:
     security:

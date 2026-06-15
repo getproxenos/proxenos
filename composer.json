@@ -24,6 +24,7 @@
         "symfony/event-dispatcher": "^8.0",
         "symfony/framework-bundle": "^8.0",
         "symfony/http-client": "^8.0",
+        "symfony/mercure-bundle": "^0.4.2",
         "symfony/messenger": "^8.0",
         "symfony/monolog-bundle": "^4.0",
         "symfony/routing": "^8.0",
