@@ -116,6 +116,10 @@ Implementation starts with Postgres as both event store and replay source, using
 - User-facing model picker (à la Open WebUI, LibreChat). Not the product this is.
 - Single model for everything. Wasteful and inflexible.
 
+**Amended by ADR-027.** The taxonomy of operation-facing profile names
+(`proxenos.task.{chat, reason, extract, summarize, embed.text}`) is defined
+there; this ADR's "user does not pick models" stance is unchanged.
+
 ---
 
 ## ADR-009: assistant-ui as the component library
@@ -267,6 +271,9 @@ The registry keeps the useful parts: named operations, per-operation model choic
 - The exact v0 hook-point vocabulary (`turn.completed`, `context.retrieve`, `response.generate`, `suggestions.rank`, etc.).
 - Whether long-running agent work (`core.subagent.run`) stays in this registry with a different scheduling mode or graduates to a separate agent-run primitive.
 - How much of the operation registry is exposed in admin/debug UI at v0 versus only recorded in logs and usage tables.
+- Feature → profile bindings: see ADR-027 for the v0 env-override convention
+  (`PROXENOS_{FEATURE}_MODEL_PROFILE`). The operation declaration absorbs
+  them when the registry lands (F2).
 
 ---
 
@@ -710,6 +717,11 @@ respects the handoff's "minimal web UI" and the existing 0.1 server-rendered she
 - *System prompt.* v0 sends no system prompt — the dumb concat starts at the first user turn.
   Once prompt declarations (ADR-018) or any host policy needs to inject one, the loop is the
   obvious place; for now keeping it absent makes the swap-by-config DoD trivially honest.
+
+**Amended by ADR-027.** Profile names move into the `proxenos.task.*`
+taxonomy (`chat.frontier` → `proxenos.task.chat`,
+`chat.frontier_alt` → `proxenos.task.chat.generic`). The resolver shape and
+swap-by-config DoD are unchanged; only the vocabulary moves.
 
 ## ADR-024: Phase 0.4 backend streaming — cumulative-replace deltas coalesced at UI cadence, SSE fan-out as a dumb companion
 
@@ -1185,4 +1197,168 @@ ergonomic runtime surface, the host owns the conversation state machine.
   surface. The event lands when the loop-side cooperative cancel is wired,
   which may be in the SPA-enablement slice or in a tight follow-up — recorded
   here so the link from `onCancel` to the cancelled event is not lost.
+
+## ADR-027: Model-profile / task-intent taxonomy (amends ADR-008 / ADR-014 / ADR-023)
+
+**Decision.** Model selection is named through a two-layer, two-dimension
+**task-intent taxonomy** layered on top of ADR-023's existing model-profile
+resolver. The resolver itself does not change shape; what changes is the
+*vocabulary* every later operation will read from, so the spine, the operation
+registry, and every memory/truth feature share one naming convention from day
+one.
+
+1. **Two layers, both already present in shape.**
+   - *Profile → `{platform, model, options}`*: the `proxenos.model_profiles`
+     map (built in ADR-023). The resolver is a dumb `name → profile` lookup,
+     unchanged.
+   - *Feature → profile*: how a specific feature (the chat loop, an
+     extraction operation, a summary job) selects which profile to ask for.
+     v0 ships this as **config default + env override**, with the convention
+     `PROXENOS_{FEATURE}_MODEL_PROFILE`. The chat loop's default is
+     `proxenos.task.chat`; a memory-extraction operation would default to
+     `proxenos.task.extract` and accept `PROXENOS_MEMORY_EXTRACT_MODEL_PROFILE`
+     to point at a bespoke profile when one feature needs its own model.
+     Bindings graduate into the ADR-014 operation declaration when the
+     registry lands (F2); the env pattern survives as the override seam.
+
+2. **Two naming dimensions, composed by convention.** Profile names encode
+   both dimensions in one flat key; the resolver never parses or composes
+   them.
+   - *Intent* — what the call is for. The canonical v0 list:
+     `proxenos.task.chat`, `proxenos.task.reason`, `proxenos.task.extract`,
+     `proxenos.task.summarize`, `proxenos.task.embed.text`. `proxenos.task.code`
+     is **reserved-in-ADR** (not declared in config) for a future coding
+     workflow; recorded here so the name doesn't get colonised by accident.
+   - *Quality / latency variant* — the editorial tradeoff: `.fast`, `.deep`,
+     `.frontier`. Bare intent (e.g. `proxenos.task.chat`) is the
+     default/balanced variant. Composed names (e.g. `proxenos.task.reason.deep`)
+     appear **only when a profile actually splits**; the bare name and a
+     `.deep` variant never coexist with no declared difference. Today only
+     `proxenos.task.chat` is declared; everything else exists in this ADR
+     and lands when its first consumer does.
+
+3. **Bespoke profiles are first-class peers.** A feature may bind to any
+   profile name without special handling — the `proxenos.task.*` prefix is a
+   readability convention, not a type. `proxenos.task.chat.generic` (the
+   OpenAI-compatible bridge peer of `proxenos.task.chat`) demonstrates the
+   pattern: a bespoke profile that satisfies the same intent over a different
+   bridge, named so the relationship is obvious. A feature that genuinely
+   needs its own model just declares one and binds via env.
+
+4. **Per-profile schema.** Fields:
+   - `platform: string` — service-locator key (keep symfony/ai's `platform`
+     term, not `provider`; see ADR-019).
+   - `model: string` — concrete provider model id (operator-level per
+     ADR-008; never user-facing).
+   - `options: map<string, mixed>` — per-call options (`max_tokens`,
+     `temperature`, `stream_options`, …).
+   - `kind: completion|embedding` — **reserved**, defaulted to `completion`
+     on omission. Embedding profiles (e.g. `proxenos.task.embed.text`) will
+     declare `kind: embedding` and carry a `dimension: int` when they land.
+     Reserving the slot now keeps the eventual embedding addition additive
+     instead of a schema migration.
+
+5. **No 2D resolver machinery, no model-alias indirection.** "An intent
+   composed with a quality variant" is encoded in the name (point 2), not in
+   resolver logic. "The same concrete model used in one specific place" is
+   just a bespoke profile (point 3). The earlier `xes.model.*` framing is
+   dropped: a model-alias indirection layer would be a second resolver, and
+   the deferred 2D-resolver machinery; neither pays for itself at v0.
+
+The v0 config seeds the two existing profiles into the taxonomy:
+`proxenos.task.chat` (Anthropic, balanced default; the migration from
+ADR-023's `chat.frontier`) and `proxenos.task.chat.generic` (the
+OpenAI-compatible bespoke peer; the migration from `chat.frontier_alt`).
+The one call site (`ChatRespondRequest::$modelProfile`) defaults to the new
+name; the test-env rebinding in `config/services_test.yaml` follows. No new
+providers or bridges land with this ADR.
+
+**Worked example — feature → profile env override.** A future memory
+extraction operation declares its default in its service constructor:
+
+```yaml
+App\Ai\Memory\ExtractMemoryHandler:
+    arguments:
+        $modelProfile: '%env(default::PROXENOS_MEMORY_EXTRACT_MODEL_PROFILE)%'
+```
+
+with a sensible fallback when the env var is unset (e.g. `default` resolves
+to `proxenos.task.extract` via a parameter, or the constructor falls back if
+the env reads empty). Setting
+`PROXENOS_MEMORY_EXTRACT_MODEL_PROFILE=memory.extract.bespoke` in
+`.env.local` then routes extraction to a per-feature bespoke profile without
+touching app code. The chat loop ships the hard-coded default
+(`proxenos.task.chat`) and stays env-free because there is only one binding;
+the env convention is for sites that genuinely need overridability today.
+
+**Rationale.** ADR-008 commits to operator-level model selection.
+ADR-014 commits to operations declaring a *profile* the host resolves.
+ADR-023 commits to a `name → profile` resolver that swaps providers via
+config alone. What was missing — and what every downstream feature would
+otherwise re-invent — is the *vocabulary*: what profiles are even called.
+Iris's "14 operations" pattern accumulated 14 informal names; this ADR
+preempts the same drift by pinning the intent dimension up front and
+naming the quality dimension as convention-only. Picking a flat-map +
+naming convention over a 2D resolver keeps the resolver dumb and the names
+greppable — `grep proxenos.task.reason` finds every binding. Reserving the
+`kind` marker now is the same insurance ADR-013a's `expansion` slot bought
+for the reference envelope: zero cost today, a wire-format migration
+avoided when embeddings arrive. Splitting feature→profile bindings between
+"config + env now" and "ADR-014 declaration later" follows the same trajectory
+ADR-023 set — the seam exists, the registry just absorbs it later without
+breaking the names sites are already using.
+
+The taxonomy is also the smallest-possible naming commitment: it names what
+*exists today* (`task.chat`), reserves what is *next on the roadmap*
+(`task.reason`, `task.extract`, `task.summarize`, `task.embed.text`,
+`task.code`), and defers everything else. No premature canonicalisation; no
+encoded policy the resolver has to honour.
+
+**Ruled out.**
+- *Composed `(intent × quality)` resolver.* Names already encode both
+  dimensions; a resolver that joined `proxenos.task.reason` with `.deep`
+  programmatically would split where its inputs live (intent in the request,
+  variant in policy?), and re-create the model-alias problem this ADR
+  explicitly drops.
+- *`xes.model.*` indirection / model-alias layer.* "A concrete model used in
+  one place" is just a bespoke profile; the indirection layer adds a second
+  resolver for no v0 win.
+- *Declaring every reserved intent in config now.* The resolver rejects a
+  profile with no model. Declaring `proxenos.task.reason` with a placeholder
+  would either ship an unusable profile or invent a placeholder model id; the
+  ADR-holds / config-declares-as-needed split keeps both honest.
+- *Renaming `platform:` to `provider:`.* The term `platform` matches
+  symfony/ai (ADR-019); renaming would lose the cross-reference for zero gain.
+- *User-facing model picker.* Out of scope (ADR-008); restated for emphasis.
+- *Stamping `kind: completion` on every existing profile.* Reserved-as-default
+  means omission already encodes it. Adding the key everywhere is churn for
+  zero behavioural change.
+- *Binding features to profiles via the ADR-014 registry **now**.* Builds the
+  registry (F2) one step early; the env pattern is the v0 bridge that
+  graduates cleanly.
+- *Treating the OpenAI-compatible bridge as a separate "alt" tier rather than
+  a bespoke peer.* `chat.frontier_alt` carried an implicit "tier" reading that
+  the taxonomy doesn't actually have; `proxenos.task.chat.generic` is honest
+  about what it is — a bespoke profile satisfying `task.chat` over a
+  different bridge.
+
+**Open questions surfaced.**
+- *When `proxenos.task.code` declares itself.* Reserved for a coding workflow;
+  the trigger to declare it in config is the first feature that wants to
+  bind. Until then it sits in this ADR.
+- *When quality variants split.* Today every declared intent is balanced;
+  the first feature that genuinely needs both a fast and a deep variant
+  forces `proxenos.task.<intent>` + `proxenos.task.<intent>.deep` to coexist
+  with declared differences. Recorded here so the split is data-driven, not
+  speculative.
+- *Embedding-profile shape end-to-end.* `kind: embedding` plus `dimension:
+  int` is the v0 schema; whether the resolver returns a different value type
+  for embedding profiles (separate `ResolvedEmbeddingModel`?) lands with the
+  first embedding consumer.
+- *Per-tenant or per-profile overrides.* Resolver shape supports them
+  (ADR-023); v0 config does not. Picked up when the second tenant exists.
+- *Graduation into ADR-014.* The exact registry shape that absorbs the
+  feature→profile binding (operation declaration carrying a
+  `model_profile_default` + an `env_override_key`?) is F2's call; this ADR
+  reserves the binding pattern, not the absorption mechanics.
 
