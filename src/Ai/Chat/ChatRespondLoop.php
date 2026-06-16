@@ -34,8 +34,9 @@ use Symfony\Component\Uid\Uuid;
  *
  * Flow:
  *   1. append `user_message_submitted` — fold creates Thread + user Message
- *   2. read prior messages on the thread in position order (dumb prompt
- *      assembly per handoff §"Decision 4")
+ *   2. entity-aware prompt assembly (step-02 chunk 7): pinned-reference
+ *      context contributions (system segment) prepended ahead of the prior
+ *      messages on the thread, read in position order
  *   3. resolve the model profile (`proxenos.task.chat` -> Platform + model + opts)
  *   4. append `assistant_turn_created` — fold creates the Turn row
  *   5. invoke the Platform in STREAMING mode (`stream: true`) and walk the
@@ -94,6 +95,7 @@ final class ChatRespondLoop
         private readonly MessageRepository $messages,
         private readonly MessagePartRepository $parts,
         private readonly EntityManagerInterface $em,
+        private readonly PromptAssembler $prompts,
         private readonly LoggerInterface $logger = new NullLogger(),
     ) {
     }
@@ -111,8 +113,12 @@ final class ChatRespondLoop
             payload: new UserMessageSubmitted($userMessageId, $request->userMessageText),
         ));
 
-        // 2. dumb prompt assembly: prior messages on this thread, in order
-        $messageBag = $this->assemblePromptFromProjection($request->threadId);
+        // 2. entity-aware prompt assembly (step-02 chunk 7): pinned-reference
+        //    context contributions are prepended as a system segment AHEAD OF
+        //    the conversation history. Zero attachments -> zero contributions
+        //    -> identical MessageBag to the old dumb path.
+        $contributions = $this->prompts->assemble($request->threadId, $request->tenantId);
+        $messageBag = $this->assemblePrompt($request->threadId, $contributions);
 
         // 3. resolve profile -> Platform + model id + options
         $resolved = $this->resolver->resolve($request->modelProfile);
@@ -269,12 +275,35 @@ final class ChatRespondLoop
         );
     }
 
-    private function assemblePromptFromProjection(Uuid $threadId): MessageBag
+    /**
+     * Fold the ordered prompt contributions into a `MessageBag`, then append
+     * the conversation history. Contributions sort by `weight` ascending so the
+     * cross-lane contract `[ systemPrompt, entityContext, conversationHistory ]`
+     * holds regardless of which lane produced which contribution (decision 7).
+     * The conversation history (prior messages on the thread, in position
+     * order) is appended after all contributions — unchanged from the prior
+     * dumb-assembly path.
+     *
+     * @param list<PromptContribution> $contributions
+     */
+    private function assemblePrompt(Uuid $threadId, array $contributions): MessageBag
     {
-        $messages = $this->messages->findByThreadOrdered($threadId);
+        $sorted = $contributions;
+        usort($sorted, static fn (PromptContribution $a, PromptContribution $b): int => $a->weight <=> $b->weight);
 
         $platformMessages = [];
-        foreach ($messages as $message) {
+        foreach ($sorted as $contribution) {
+            if ('' === $contribution->text) {
+                continue;
+            }
+            $platformMessages[] = match ($contribution->role) {
+                PromptContribution::ROLE_SYSTEM => PlatformMessage::forSystem($contribution->text),
+                PromptContribution::ROLE_USER => PlatformMessage::ofUser($contribution->text),
+                PromptContribution::ROLE_ASSISTANT => PlatformMessage::ofAssistant($contribution->text),
+            };
+        }
+
+        foreach ($this->messages->findByThreadOrdered($threadId) as $message) {
             $text = $this->collectMessageText($message);
             if ('' === $text) {
                 continue;
