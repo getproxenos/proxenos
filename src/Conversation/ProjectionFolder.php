@@ -12,14 +12,17 @@ use App\Entity\ConversationEvent;
 use App\Entity\Message;
 use App\Entity\MessagePart;
 use App\Entity\Thread;
+use App\Entity\ThreadAttachment;
 use App\Entity\Turn;
 use App\Enum\ConversationEventType;
 use App\Enum\MessageRole;
 use App\Enum\MessageStatus;
 use App\Repository\MessagePartRepository;
 use App\Repository\MessageRepository;
+use App\Repository\ThreadAttachmentRepository;
 use App\Repository\ThreadRepository;
 use App\Repository\TurnRepository;
+use App\TypedEntity\Reference;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\Uid\Uuid;
 
@@ -44,6 +47,7 @@ final class ProjectionFolder
         private readonly TurnRepository $turns,
         private readonly MessageRepository $messages,
         private readonly MessagePartRepository $parts,
+        private readonly ThreadAttachmentRepository $attachments,
     ) {
     }
 
@@ -55,6 +59,8 @@ final class ProjectionFolder
             ConversationEventType::ASSISTANT_CONTENT_DELTA => $this->foldAssistantContentDelta($event),
             ConversationEventType::ASSISTANT_TURN_COMPLETED => $this->foldAssistantTurnCompleted($event),
             ConversationEventType::ASSISTANT_TURN_FAILED => $this->foldAssistantTurnFailed($event),
+            ConversationEventType::THREAD_ENTITY_ATTACHED => $this->foldThreadEntityAttached($event),
+            ConversationEventType::THREAD_ENTITY_DETACHED => $this->foldThreadEntityDetached($event),
         };
 
         $this->em->flush();
@@ -278,6 +284,65 @@ final class ProjectionFolder
             $event->getOccurredAt(),
         );
         $thread->recordEvent($event->getSequence(), $event->getOccurredAt());
+    }
+
+    private function foldThreadEntityAttached(ConversationEvent $event): void
+    {
+        $payload = $event->getPayload();
+        $referenceData = $payload['reference'] ?? null;
+        if (!\is_array($referenceData)) {
+            throw new \LogicException('thread_entity_attached requires a reference envelope in its payload.');
+        }
+        $reference = Reference::fromArray($referenceData);
+
+        $attachedAt = isset($payload['attached_at']) && \is_string($payload['attached_at'])
+            ? new \DateTimeImmutable($payload['attached_at'])
+            : $event->getOccurredAt();
+
+        $existing = $this->attachments->findOneByIdentity(
+            $event->getThreadId(),
+            $reference->provider,
+            $reference->type,
+            $reference->id,
+        );
+
+        if (null !== $existing) {
+            // Idempotency cursor — already-applied folds are skipped so a
+            // partial rebuild / double-replay is safe.
+            if ($event->getSequence() <= $existing->getLastSequence()) {
+                return;
+            }
+            $existing->reattach($reference->toArray(), $event->getSequence());
+
+            return;
+        }
+
+        $attachment = new ThreadAttachment(
+            $event->getThreadId(),
+            $event->getTenantId(),
+            $reference->provider,
+            $reference->type,
+            $reference->id,
+            $reference->toArray(),
+            $attachedAt,
+            $event->getSequence(),
+        );
+        $this->em->persist($attachment);
+    }
+
+    private function foldThreadEntityDetached(ConversationEvent $event): void
+    {
+        $payload = $event->getPayload();
+        $provider = (string) ($payload['provider'] ?? '');
+        $type = (string) ($payload['type'] ?? '');
+        $id = (string) ($payload['id'] ?? '');
+
+        $existing = $this->attachments->findOneByIdentity($event->getThreadId(), $provider, $type, $id);
+        // Detaching an absent row is a no-op — keeps a full replay
+        // (attach…detach) and a double-replay idempotent.
+        if (null !== $existing) {
+            $this->em->remove($existing);
+        }
     }
 
     private function ensureThread(

@@ -17,7 +17,7 @@ use Symfony\Component\Uid\Uuid;
 
 /**
  * Reconstructs a thread's projections (threads / turns / messages /
- * message_parts) from its `conversation_events` log. The fold logic is the
+ * message_parts / thread_attachments) from its `conversation_events` log. The fold logic is the
  * same `ProjectionFolder` the write path uses — that symmetry is what makes
  * "projections are rebuildable" (ADR-004) operational rather than aspirational
  * (ADR-022).
@@ -61,6 +61,7 @@ final class ProjectionsRebuildCommand extends Command
 
         $count = $this->em->wrapInTransaction(function () use ($threadId, $events): int {
             $conn = $this->em->getConnection();
+            $conn->executeStatement('DELETE FROM thread_attachments WHERE thread_id = ?', [$threadId->toRfc4122()]);
             $conn->executeStatement('DELETE FROM message_parts WHERE thread_id = ?', [$threadId->toRfc4122()]);
             $conn->executeStatement('DELETE FROM messages WHERE thread_id = ?', [$threadId->toRfc4122()]);
             $conn->executeStatement('DELETE FROM turns WHERE thread_id = ?', [$threadId->toRfc4122()]);
