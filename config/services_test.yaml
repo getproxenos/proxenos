@@ -1,13 +1,14 @@
 parameters:
-    # Override the production profile map for the test env so chat.frontier
-    # routes to an in-memory test platform — make test runs key-free.
+    # Override the production profile map for the test env so
+    # proxenos.task.chat routes to an in-memory test platform — make test
+    # runs key-free.
     proxenos.model_profiles:
-        chat.frontier:
+        proxenos.task.chat:
             platform: test_inmemory
             model: claude-sonnet-4-6
             options:
                 max_tokens: 8192
-        chat.frontier_alt:
+        proxenos.task.chat.generic:
             platform: test_inmemory
             model: test-alt-model
             options: {}

@@ -4,7 +4,7 @@
 # Two bridges are registered side-by-side so the host-owned model-profile
 # resolver (ADR-014/023) can swap providers by config alone:
 #
-#   - anthropic: the Phase 0.3 default behind chat.frontier. ANTHROPIC_API_KEY
+#   - anthropic: the default behind proxenos.task.chat. ANTHROPIC_API_KEY
 #     stays empty in committed defaults; set it in .env.local for live runs.
 #     symfony/ai-anthropic-platform exposes the Claude bridge and a default
 #     model catalog. claude-sonnet-4-6 is registered here as an additional
@@ -17,7 +17,7 @@
 # Because more than one platform is configured the bundle no longer aliases
 # Symfony\AI\Platform\PlatformInterface to any single one. The application
 # wires Platform instances through src/Ai/ModelProfile/ConfigModelProfileResolver
-# (resolves chat.frontier -> the right Platform + model id).
+# (resolves proxenos.task.chat -> the right Platform + model id).
 #
 # Model ids are passed per-call by the resolver from config (see
 # config/packages/proxenos.yaml), not hardcoded here. The bridge ModelClient

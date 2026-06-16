@@ -21,7 +21,8 @@ use Symfony\AI\Platform\Test\InMemoryPlatform;
  *
  * Configured in config/services_test.yaml so the production
  * {@see \App\Ai\ModelProfile\ConfigModelProfileResolver} resolves
- * chat.frontier to this platform in the test env — no live API key needed.
+ * proxenos.task.chat to this platform in the test env — no live API key
+ * needed.
  *
  * Streaming support (Phase 0.4): when the caller passes `stream: true` in
  * options, the platform returns a {@see StreamResult} of {@see TextDelta}s.

@@ -5,10 +5,11 @@ declare(strict_types=1);
 namespace App\Ai\ModelProfile;
 
 /**
- * Host-owned seam for ADR-014's model-profile vocabulary (`chat.frontier`,
- * `reasoning.medium`, `embedding.text`, …). The Phase 0.3 turn loop and all
- * later operations (extraction, summarization, embeddings) resolve the model
- * to call the same way: by profile name.
+ * Host-owned seam for ADR-027's model-profile vocabulary
+ * (`proxenos.task.chat`, `proxenos.task.reason`, `proxenos.task.embed.text`,
+ * …) — the operation-facing names ADR-014 resolves at execution time. The
+ * Phase 0.3 turn loop and all later operations (extraction, summarization,
+ * embeddings) resolve the model to call the same way: by profile name.
  *
  * Why an interface, not a service map directly:
  *   - swapping providers behind a profile must stay code-free (ADR-023 DoD);

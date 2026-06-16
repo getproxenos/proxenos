@@ -28,7 +28,7 @@ final readonly class ChatRespondRequest
         public Uuid $userId,
         public Uuid $threadId,
         public string $userMessageText,
-        public string $modelProfile = 'chat.frontier',
+        public string $modelProfile = 'proxenos.task.chat',
         public ?\Closure $onDelta = null,
     ) {
         if ('' === trim($userMessageText)) {
