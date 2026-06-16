@@ -35,11 +35,11 @@ services:
             $embeddingModel: '%env(LLM_EMBEDDING_MODEL)%'
             $embeddingDim: '%env(int:EMBEDDING_DIM)%'
 
-    # Model-profile resolver (ADR-014/023). Reads the profile map from
+    # Model-profile resolver (ADR-014/023/027). Reads the profile map from
     # config/packages/proxenos.yaml (loaded as the proxenos.model_profiles
-    # parameter) and resolves a profile name like "chat.frontier" to a Platform
-    # + concrete model id + per-call options. Swapping providers behind a
-    # profile is a config edit; no code changes.
+    # parameter) and resolves a profile name like "proxenos.task.chat" to a
+    # Platform + concrete model id + per-call options. Swapping providers
+    # behind a profile is a config edit; no code changes.
     App\Ai\ModelProfile\ConfigModelProfileResolver:
         arguments:
             $profiles: '%proxenos.model_profiles%'

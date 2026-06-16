@@ -36,7 +36,7 @@ use Symfony\Component\Uid\Uuid;
  *   1. append `user_message_submitted` — fold creates Thread + user Message
  *   2. read prior messages on the thread in position order (dumb prompt
  *      assembly per handoff §"Decision 4")
- *   3. resolve the model profile (`chat.frontier` -> Platform + model + opts)
+ *   3. resolve the model profile (`proxenos.task.chat` -> Platform + model + opts)
  *   4. append `assistant_turn_created` — fold creates the Turn row
  *   5. invoke the Platform in STREAMING mode (`stream: true`) and walk the
  *      text-delta generator. Provider tokens are accumulated into a running
