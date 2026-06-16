@@ -31,4 +31,5 @@ initiatives:
     intake: ad-hoc
     brief: .wip/initiatives/post-phase-0-roadmap/BRIEF.md
     roadmap: .wip/initiatives/post-phase-0-roadmap/roadmap.md
+    active_step: step-02
 current_initiative: post-phase-0-roadmap
