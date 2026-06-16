@@ -1,0 +1,34 @@
+# .wip.yaml — the wip manifest.
+#
+# Lives at REPO ROOT, always committed. The deterministic entry point
+# `wip-plumbing` reads to answer "what's installed, where, and what's next."
+# See .wip/GLOSSARY.md for every term used here.
+
+version: 1
+# --- gitignore policy -------------------------------------------------------
+# Track everything under .wip/ in this repo: briefs, roadmaps, workplans,
+# and the GLOSSARY/backlog tooling files. The in-flight planning artifacts
+# are part of the durable project history alongside ADRs and handoffs.
+gitignore:
+  commit: true
+# --- features ---------------------------------------------------------------
+# A feature is ACTIVE iff: enabled here AND its sentinel file exists on disk.
+# Other features (lds, diataxis, changelog, direnv, solo, ...) are opt-in via
+# the `wip setup` family. Add stanzas here as you enable them.
+features:
+  wip:
+    enabled: true
+    root: .wip
+  lds: {"enabled": true, "root": "engineering"}
+  changelog: {"enabled": true}
+  orchestration: {"enabled": true, "backend": "solo", "source": "plugin"}
+# --- initiative registry ----------------------------------------------------
+# Populated by `wip init <slug>`. `current_initiative` selects the default.
+initiatives:
+  - slug: post-phase-0-roadmap
+    title: Post-Phase 0 Roadmap
+    status: in-flight
+    intake: ad-hoc
+    brief: .wip/initiatives/post-phase-0-roadmap/BRIEF.md
+    roadmap: .wip/initiatives/post-phase-0-roadmap/roadmap.md
+current_initiative: post-phase-0-roadmap
