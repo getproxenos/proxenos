@@ -118,5 +118,4 @@ final class ApiChatController extends AbstractController
             'status' => 'cancel_requested',
         ], Response::HTTP_ACCEPTED);
     }
-
 }
