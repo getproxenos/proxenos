@@ -116,11 +116,11 @@ final class EntityRenderer
     private function excerpt(string $text, int $maxChars): string
     {
         $normalized = trim((string) preg_replace('/\s+/', ' ', $text));
-        if (\strlen($normalized) <= $maxChars) {
+        if (mb_strlen($normalized) <= $maxChars) {
             return $normalized;
         }
 
-        return rtrim(substr($normalized, 0, max(0, $maxChars - 1))).'…';
+        return rtrim(mb_substr($normalized, 0, max(0, $maxChars - 1))).'…';
     }
 
     /**

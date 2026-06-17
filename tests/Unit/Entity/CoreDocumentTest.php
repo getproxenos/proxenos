@@ -44,6 +44,23 @@ final class CoreDocumentTest extends TestCase
         new CoreDocument(Uuid::v7(), Uuid::v7(), null, str_repeat('x', 201), 'body', [], null, new \DateTimeImmutable());
     }
 
+    public function testConstructorAcceptsExactly200MultibyteTitleChars(): void
+    {
+        // 200 CJK chars = 200 code points but 600 bytes; byte-based strlen would
+        // incorrectly reject this valid title.
+        $title = str_repeat('字', 200);
+        $doc = new CoreDocument(Uuid::v7(), Uuid::v7(), null, $title, 'body', [], null, new \DateTimeImmutable());
+
+        self::assertSame($title, $doc->getTitle());
+    }
+
+    public function testConstructorRejects201MultibyteTitleChars(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+
+        new CoreDocument(Uuid::v7(), Uuid::v7(), null, str_repeat('字', 201), 'body', [], null, new \DateTimeImmutable());
+    }
+
     public function testConstructorNormalizesTagsTrimDedupAndDropsEmpty(): void
     {
         $doc = new CoreDocument(

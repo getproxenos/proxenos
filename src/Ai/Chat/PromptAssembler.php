@@ -79,7 +79,7 @@ final class PromptAssembler
      *
      * @return list<PromptContribution>
      */
-    public function assembleResolved(array $resolved): array
+    public function assembleResolved(array $resolved, int $budget = ContextBudgetPlanner::DEFAULT_ATTACHED_ENTITIES_BUDGET): array
     {
         $candidates = [];
         foreach ($resolved as $resolvedReference) {
@@ -109,7 +109,7 @@ final class PromptAssembler
             $candidates[] = $this->candidateFor($reference, $rendered);
         }
 
-        $admitted = $this->budget->admitAttachedEntities($candidates);
+        $admitted = $this->budget->admitAttachedEntities($candidates, $budget);
         if ([] === $admitted) {
             return [];
         }
@@ -143,18 +143,20 @@ final class PromptAssembler
     }
 
     /**
-     * Build the budget candidate from the pill render. v0 honors `pill` only,
-     * so the `full` and `summary` ladder rungs both carry the pill line; the
-     * `reference` floor carries the bare identity line.
+     * Build the budget candidate from the pill render. v0 honors `pill` only;
+     * `full` carries the pill line annotated with the identity path (richer
+     * context for the model), `summary`/`reference` carry the bare title pill
+     * (cheaper fallback). This ensures the ADR-016 ladder degrades from richer
+     * to cheaper under budget pressure rather than the inverse.
      */
     private function candidateFor(Reference $reference, RenderedEntity $rendered): AttachmentCandidate
     {
         $pill = $this->pillLine($rendered);
 
         return new AttachmentCandidate(
-            full: $pill,
+            full: $this->referenceLine($reference, $rendered),
             summary: $pill,
-            reference: $this->referenceLine($reference, $rendered),
+            reference: $pill,
         );
     }
 

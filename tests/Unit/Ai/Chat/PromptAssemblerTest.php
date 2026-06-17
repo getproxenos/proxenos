@@ -128,6 +128,23 @@ final class PromptAssemblerTest extends TestCase
         self::assertSame([], $assembler->assembleResolved([]));
     }
 
+    public function testBudgetDegradationAdmitsAtSummaryWhenFullDoesNotFit(): void
+    {
+        // `full` rung = "- Hi (reference: core/core.document/<uuid>)" ≈ 50+ chars = 12+ tokens.
+        // `summary`/`reference` rung = "- Hi" = 4 chars = 1 token.
+        // Budget of 4 tokens: full does not fit, summary does → entity is admitted
+        // at summary rather than dropped (the bug produced the opposite result).
+        $assembler = $this->makeAssembler($this->recordingLogger());
+
+        $contributions = $assembler->assembleResolved(
+            [$this->resolvedDocument(self::DOC_ID_A, 'Hi', 'body')],
+            budget: 4,
+        );
+
+        self::assertCount(1, $contributions);
+        self::assertStringContainsString('Hi', $contributions[0]->text);
+    }
+
     private function resolvedDocument(string $id, string $title, string $body, string $expansion = Reference::EXPANSION_PILL): ResolvedReference
     {
         return new ResolvedReference(

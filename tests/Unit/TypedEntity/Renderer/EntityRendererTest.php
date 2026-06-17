@@ -74,6 +74,25 @@ final class EntityRendererTest extends TestCase
         self::assertStringEndsWith('…', $rendered->summary);
     }
 
+    public function testExcerptCountsMultibyteCharactersNotBytes(): void
+    {
+        // Each CJK character is 3 bytes but 1 code point. 200 CJK chars = 600
+        // bytes; byte-based substr would slice mid-codepoint and corrupt UTF-8.
+        $body = str_repeat('字', 300); // 300 CJK chars, well over 200-char limit
+
+        $rendered = $this->renderer->render(
+            $this->envelope,
+            ['title' => 'T', 'body' => $body],
+            'card',
+        );
+
+        self::assertNotNull($rendered->summary);
+        self::assertSame(200, mb_strlen($rendered->summary));
+        // Confirm the string is valid UTF-8 (json_encode returns false on invalid UTF-8)
+        self::assertNotFalse(json_encode($rendered->summary));
+        self::assertStringEndsWith('…', $rendered->summary);
+    }
+
     public function testMissingTitleHintFallsBackToTypeId(): void
     {
         $envelope = $this->envelope;

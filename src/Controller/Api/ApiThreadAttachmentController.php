@@ -15,7 +15,6 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
-use Symfony\Component\Security\Csrf\CsrfToken;
 use Symfony\Component\Security\Csrf\CsrfTokenManagerInterface;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Symfony\Component\Uid\Uuid;
@@ -50,6 +49,8 @@ use Symfony\Component\Uid\Uuid;
 #[IsGranted('ROLE_USER')]
 final class ApiThreadAttachmentController extends AbstractController
 {
+    use ApiControllerSupport;
+
     public function __construct(
         private readonly MembershipRepository $memberships,
         private readonly ThreadRepository $threads,
@@ -185,6 +186,10 @@ final class ApiThreadAttachmentController extends AbstractController
 
     private function resolveThreadOrAbort(string $threadId, Membership $membership): Uuid
     {
+        if (!Uuid::isValid($threadId)) {
+            throw $this->createNotFoundException('Thread not found.');
+        }
+
         $threadUuid = Uuid::fromString($threadId);
 
         $existing = $this->threads->find($threadUuid);
@@ -193,56 +198,5 @@ final class ApiThreadAttachmentController extends AbstractController
         }
 
         return $threadUuid;
-    }
-
-    private function validationError(string $detail): JsonResponse
-    {
-        return new JsonResponse(
-            ['error' => 'validation_failed', 'detail' => $detail],
-            Response::HTTP_BAD_REQUEST,
-        );
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function decodeJson(Request $request): array
-    {
-        $raw = (string) $request->getContent();
-        if ('' === $raw) {
-            return [];
-        }
-        try {
-            $decoded = json_decode($raw, true, flags: \JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
-            throw $this->createAccessDeniedException('Invalid JSON body.');
-        }
-
-        return \is_array($decoded) ? $decoded : [];
-    }
-
-    /**
-     * CSRF protection shared with the SPA chat write surface
-     * ({@see ApiChatController}): the 'chat' intention so one token covers
-     * every mutating SPA call during the Twig->SPA migration.
-     */
-    private function validateCsrf(Request $request): void
-    {
-        $token = (string) $request->headers->get('X-CSRF-Token', '');
-        if (!$this->csrf->isTokenValid(new CsrfToken('chat', $token))) {
-            throw $this->createAccessDeniedException('Invalid CSRF token.');
-        }
-    }
-
-    private function resolveMembershipOrAbort(): Membership
-    {
-        /** @var User $user */
-        $user = $this->getUser();
-        $membership = $this->memberships->findOneForUser($user);
-        if (null === $membership) {
-            throw $this->createAccessDeniedException('User has no tenant membership.');
-        }
-
-        return $membership;
     }
 }

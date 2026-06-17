@@ -340,9 +340,18 @@ final class ProjectionFolder
         $existing = $this->attachments->findOneByIdentity($event->getThreadId(), $provider, $type, $id);
         // Detaching an absent row is a no-op — keeps a full replay
         // (attach…detach) and a double-replay idempotent.
-        if (null !== $existing) {
-            $this->em->remove($existing);
+        if (null === $existing) {
+            return;
         }
+
+        // Idempotency cursor — mirrors foldThreadEntityAttached. Guards
+        // a future windowed/partial re-fold from removing a row that a
+        // later attach already re-created.
+        if ($event->getSequence() <= $existing->getLastSequence()) {
+            return;
+        }
+
+        $this->em->remove($existing);
     }
 
     private function ensureThread(

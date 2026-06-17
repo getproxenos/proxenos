@@ -68,18 +68,10 @@ class CoreDocument
         ?string $collection,
         \DateTimeImmutable $createdAt,
     ) {
-        $title = trim($title);
-        if ('' === $title) {
-            throw new \InvalidArgumentException('core.document.title must be non-empty.');
-        }
-        if (\strlen($title) > 200) {
-            throw new \InvalidArgumentException('core.document.title must be <= 200 chars.');
-        }
-
         $this->id = $id;
         $this->tenantId = $tenantId;
         $this->createdByUserId = $createdByUserId;
-        $this->title = $title;
+        $this->title = self::normalizeTitle($title);
         $this->body = $body;
         $this->tags = self::normalizeTags($tags);
         $this->collection = self::normalizeCollection($collection);
@@ -143,15 +135,7 @@ class CoreDocument
         ?string $collection,
         \DateTimeImmutable $updatedAt,
     ): void {
-        $title = trim($title);
-        if ('' === $title) {
-            throw new \InvalidArgumentException('core.document.title must be non-empty.');
-        }
-        if (\strlen($title) > 200) {
-            throw new \InvalidArgumentException('core.document.title must be <= 200 chars.');
-        }
-
-        $this->title = $title;
+        $this->title = self::normalizeTitle($title);
         $this->body = $body;
         if (null !== $tags) {
             $this->tags = self::normalizeTags($tags);
@@ -187,6 +171,19 @@ class CoreDocument
         ];
     }
 
+    private static function normalizeTitle(string $title): string
+    {
+        $title = trim($title);
+        if ('' === $title) {
+            throw new \InvalidArgumentException('core.document.title must be non-empty.');
+        }
+        if (mb_strlen($title) > 200) {
+            throw new \InvalidArgumentException('core.document.title must be <= 200 chars.');
+        }
+
+        return $title;
+    }
+
     /**
      * @param list<string> $tags
      *
@@ -200,7 +197,7 @@ class CoreDocument
             if ('' === $tag) {
                 continue;
             }
-            if (\strlen($tag) > 64) {
+            if (mb_strlen($tag) > 64) {
                 throw new \InvalidArgumentException('core.document.tag must be <= 64 chars.');
             }
             if (!\in_array($tag, $normalized, true)) {
@@ -220,7 +217,7 @@ class CoreDocument
         if ('' === $collection) {
             return null;
         }
-        if (\strlen($collection) > 200) {
+        if (mb_strlen($collection) > 200) {
             throw new \InvalidArgumentException('core.document.collection must be <= 200 chars.');
         }
 

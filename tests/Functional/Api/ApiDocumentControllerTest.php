@@ -114,6 +114,21 @@ final class ApiDocumentControllerTest extends WebTestCase
         self::assertSame('not_found', $body['error']);
     }
 
+    public function testGetMalformedUuidReturns404NotServerError(): void
+    {
+        // Route regex [0-9a-f-]{36} admits strings that are not well-formed UUIDs
+        // (e.g. 36 dashes). Previously Uuid::fromString() would throw an
+        // InvalidArgumentException → HTTP 500. The guard must return 404 instead.
+        $this->loginAs('doc@example.com');
+
+        $this->client->request('GET', '/api/documents/'.str_repeat('-', 36));
+
+        $response = $this->client->getResponse();
+        self::assertSame(404, $response->getStatusCode());
+        $body = json_decode((string) $response->getContent(), true, flags: \JSON_THROW_ON_ERROR);
+        self::assertSame('not_found', $body['error']);
+    }
+
     /**
      * @param array<string, mixed> $payload
      *
