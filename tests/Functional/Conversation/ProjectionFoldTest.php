@@ -17,6 +17,7 @@ use App\Entity\Message;
 use App\Entity\MessagePart;
 use App\Entity\Tenant;
 use App\Entity\Thread;
+use App\Entity\ThreadAttachment;
 use App\Entity\Turn;
 use App\Entity\User;
 use App\Enum\ActorType;
@@ -27,6 +28,7 @@ use App\Enum\TurnStatus;
 use App\Repository\ConversationEventRepository;
 use App\Repository\MessagePartRepository;
 use App\Repository\MessageRepository;
+use App\Repository\ThreadAttachmentRepository;
 use App\Repository\ThreadRepository;
 use App\Repository\TurnRepository;
 use Doctrine\ORM\EntityManagerInterface;
@@ -65,7 +67,7 @@ final class ProjectionFoldTest extends KernelTestCase
 
         $this->em = $container->get(EntityManagerInterface::class);
         $this->em->getConnection()->executeStatement(
-            'TRUNCATE TABLE message_parts, messages, turns, threads, conversation_events, memberships, users, tenants RESTART IDENTITY CASCADE',
+            'TRUNCATE TABLE thread_attachments, message_parts, messages, turns, threads, conversation_events, memberships, users, tenants RESTART IDENTITY CASCADE',
         );
 
         $hasher = $container->get(UserPasswordHasherInterface::class);
@@ -92,7 +94,9 @@ final class ProjectionFoldTest extends KernelTestCase
         $partRepo = $this->em->getRepository(MessagePart::class);
 
         // Rebuild the appender with a known clock so occurred_at is deterministic.
-        $folder = new ProjectionFolder($this->em, $threadRepo, $turnRepo, $messageRepo, $partRepo);
+        /** @var ThreadAttachmentRepository $attachmentRepo */
+        $attachmentRepo = $this->em->getRepository(ThreadAttachment::class);
+        $folder = new ProjectionFolder($this->em, $threadRepo, $turnRepo, $messageRepo, $partRepo, $attachmentRepo);
         $this->appender = new EventAppender(
             $this->em,
             $eventRepo,

@@ -6,7 +6,6 @@ namespace App\Controller\Api;
 
 use App\Ai\Chat\ChatRespondLoop;
 use App\Ai\Chat\ChatRespondRequest;
-use App\Entity\Membership;
 use App\Entity\User;
 use App\Repository\MembershipRepository;
 use App\Repository\ThreadRepository;
@@ -15,7 +14,6 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Routing\Attribute\Route;
-use Symfony\Component\Security\Csrf\CsrfToken;
 use Symfony\Component\Security\Csrf\CsrfTokenManagerInterface;
 use Symfony\Component\Security\Http\Attribute\IsGranted;
 use Symfony\Component\Uid\Uuid;
@@ -48,6 +46,8 @@ use Symfony\Component\Uid\Uuid;
 #[IsGranted('ROLE_USER')]
 final class ApiChatController extends AbstractController
 {
+    use ApiControllerSupport;
+
     public function __construct(
         private readonly MembershipRepository $memberships,
         private readonly ThreadRepository $threads,
@@ -117,50 +117,5 @@ final class ApiChatController extends AbstractController
             'turn_id' => $turnId,
             'status' => 'cancel_requested',
         ], Response::HTTP_ACCEPTED);
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function decodeJson(Request $request): array
-    {
-        $raw = (string) $request->getContent();
-        if ('' === $raw) {
-            return [];
-        }
-        try {
-            $decoded = json_decode($raw, true, flags: \JSON_THROW_ON_ERROR);
-        } catch (\JsonException) {
-            throw $this->createAccessDeniedException('Invalid JSON body.');
-        }
-
-        return \is_array($decoded) ? $decoded : [];
-    }
-
-    /**
-     * CSRF protection for SPA writes (handoff §3). The SPA reads the
-     * token from /api/me/bootstrap and echoes it on every mutating
-     * request as `X-CSRF-Token`. Intention is shared with the Twig
-     * chat form ('chat') so both surfaces validate identically during
-     * the Twig→SPA migration.
-     */
-    private function validateCsrf(Request $request): void
-    {
-        $token = (string) $request->headers->get('X-CSRF-Token', '');
-        if (!$this->csrf->isTokenValid(new CsrfToken('chat', $token))) {
-            throw $this->createAccessDeniedException('Invalid CSRF token.');
-        }
-    }
-
-    private function resolveMembershipOrAbort(): Membership
-    {
-        /** @var User $user */
-        $user = $this->getUser();
-        $membership = $this->memberships->findOneForUser($user);
-        if (null === $membership) {
-            throw $this->createAccessDeniedException('User has no tenant membership.');
-        }
-
-        return $membership;
     }
 }
