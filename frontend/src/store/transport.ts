@@ -29,6 +29,14 @@ export interface ReplayPage {
   has_more: boolean
 }
 
+/** One row of `GET /api/threads` (D2 contract). `title` is nullable. */
+export interface ThreadListItemResponse {
+  id: string
+  title: string | null
+  status: string
+  updated_at: string
+}
+
 /** GET /api/me/bootstrap — identity, CSRF, Mercure descriptor. */
 export const fetchBootstrap = async (): Promise<BootstrapDescriptor> => {
   const res = await fetch('/api/me/bootstrap', { credentials: 'same-origin' })
@@ -62,6 +70,44 @@ export const fetchAllEventsAfter = async (
     cursor = page.next_after
   }
   return collected
+}
+
+/** GET /api/threads — the caller's active threads, server-ordered by updated_at. */
+export const fetchThreadList = async (): Promise<ThreadListItemResponse[]> => {
+  const res = await fetch('/api/threads', { credentials: 'same-origin' })
+  if (!res.ok) throw new Error(`thread list fetch failed: ${res.status}`)
+  return (await res.json()) as ThreadListItemResponse[]
+}
+
+/**
+ * POST /api/threads/{id}/rename — inline rename (D2 → 202). A blank or
+ * >200-char title is rejected with 400; the caller surfaces a friendly error.
+ */
+export const renameThread = async (
+  threadId: string,
+  title: string,
+  csrfToken: string,
+): Promise<void> => {
+  const res = await fetch(`/api/threads/${threadId}/rename`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': csrfToken,
+    },
+    body: JSON.stringify({ title }),
+  })
+  if (!res.ok) throw new Error(`rename failed: ${res.status}`)
+}
+
+/** POST /api/threads/{id}/archive — soft hide (D2 → 202, decision 10). */
+export const archiveThread = async (threadId: string, csrfToken: string): Promise<void> => {
+  const res = await fetch(`/api/threads/${threadId}/archive`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'X-CSRF-Token': csrfToken },
+  })
+  if (!res.ok) throw new Error(`archive failed: ${res.status}`)
 }
 
 /** POST /api/threads/{id}/messages — `onNew` from the SPA composer. */
