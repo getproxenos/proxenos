@@ -9,6 +9,7 @@ use App\Conversation\Event\Payload\AssistantTurnCancelled;
 use App\Conversation\Event\Payload\AssistantTurnCompleted;
 use App\Conversation\Event\Payload\AssistantTurnFailed;
 use App\Conversation\Event\Payload\ThreadRenamed;
+use App\Conversation\Event\Payload\ThreadSystemPromptSet;
 use App\Conversation\Event\Payload\UserMessageSubmitted;
 use App\Entity\ConversationEvent;
 use App\Entity\Message;
@@ -66,6 +67,7 @@ final class ProjectionFolder
             ConversationEventType::THREAD_ENTITY_DETACHED => $this->foldThreadEntityDetached($event),
             ConversationEventType::THREAD_RENAMED => $this->foldThreadRenamed($event),
             ConversationEventType::THREAD_ARCHIVED => $this->foldThreadArchived($event),
+            ConversationEventType::THREAD_SYSTEM_PROMPT_SET => $this->foldThreadSystemPromptSet($event),
         };
 
         $this->em->flush();
@@ -433,6 +435,26 @@ final class ProjectionFolder
         }
 
         $thread->markArchived();
+        $thread->recordEvent($event->getSequence(), $event->getOccurredAt());
+    }
+
+    private function foldThreadSystemPromptSet(ConversationEvent $event): void
+    {
+        $rawPrompt = $event->getPayload()['system_prompt'] ?? null;
+        $payload = new ThreadSystemPromptSet(null !== $rawPrompt ? (string) $rawPrompt : null);
+
+        $thread = $this->ensureThread(
+            $event->getThreadId(),
+            $event->getTenantId(),
+            null,
+            $event->getOccurredAt(),
+        );
+
+        if ($event->getSequence() <= $thread->getLastSequence()) {
+            return;
+        }
+
+        $thread->setSystemPrompt($payload->systemPrompt);
         $thread->recordEvent($event->getSequence(), $event->getOccurredAt());
     }
 

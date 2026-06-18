@@ -109,6 +109,44 @@ final class ThreadLifecycleFoldTest extends KernelTestCase
         self::assertCount(1, $this->threads->findByTenantOrderedByUpdatedAt($this->tenant->getId()));
     }
 
+    public function testSystemPromptSetFoldsAndClears(): void
+    {
+        $threadId = $this->seedThread();
+
+        // Set the per-thread override.
+        $this->service->setSystemPrompt($threadId, $this->tenant->getId(), 'You are terse.', $this->user->getId()->toRfc4122());
+        $this->em->clear();
+
+        $thread = $this->threads->find($threadId);
+        self::assertNotNull($thread);
+        self::assertSame('You are terse.', $thread->getSystemPrompt());
+
+        // A null prompt clears the override (decision 5).
+        $this->service->setSystemPrompt($threadId, $this->tenant->getId(), null, $this->user->getId()->toRfc4122());
+        $this->em->clear();
+
+        $thread = $this->threads->find($threadId);
+        self::assertNotNull($thread);
+        self::assertNull($thread->getSystemPrompt());
+    }
+
+    public function testSystemPromptSetRebuildReconstructsIdenticalState(): void
+    {
+        $threadId = $this->seedThread();
+        $this->service->setSystemPrompt($threadId, $this->tenant->getId(), 'Persona for rebuild.', $this->user->getId()->toRfc4122());
+
+        $before = $this->snapshot($threadId);
+        self::assertSame('Persona for rebuild.', $before['system_prompt']);
+
+        $this->em->clear();
+        $tester = new CommandTester($this->console->find('app:projections:rebuild'));
+        $exit = $tester->execute(['thread' => $threadId->toRfc4122()]);
+        self::assertSame(0, $exit);
+
+        $this->em->clear();
+        self::assertSame($before, $this->snapshot($threadId));
+    }
+
     public function testReplayIsIdempotent(): void
     {
         $threadId = $this->seedThread();
@@ -163,7 +201,7 @@ final class ThreadLifecycleFoldTest extends KernelTestCase
         return $threadId;
     }
 
-    /** @return array{title: ?string, status: string, last_sequence: int} */
+    /** @return array{title: ?string, status: string, system_prompt: ?string, last_sequence: int} */
     private function snapshot(Uuid $threadId): array
     {
         $thread = $this->threads->find($threadId);
@@ -172,6 +210,7 @@ final class ThreadLifecycleFoldTest extends KernelTestCase
         return [
             'title' => $thread->getTitle(),
             'status' => $thread->getStatus(),
+            'system_prompt' => $thread->getSystemPrompt(),
             'last_sequence' => $thread->getLastSequence(),
         ];
     }

@@ -28,4 +28,5 @@ enum ConversationEventType: string
     case THREAD_ENTITY_DETACHED = 'thread_entity_detached';
     case THREAD_RENAMED = 'thread_renamed';
     case THREAD_ARCHIVED = 'thread_archived';
+    case THREAD_SYSTEM_PROMPT_SET = 'thread_system_prompt_set';
 }

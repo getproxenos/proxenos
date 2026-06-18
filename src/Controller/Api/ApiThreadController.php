@@ -37,6 +37,12 @@ use Symfony\Component\Uid\Uuid;
  *     header: X-CSRF-Token
  *   -> 202 {"status": "thread_archived"} — emits thread_archived (soft hide).
  *
+ *   PUT /api/threads/{threadId}/system-prompt
+ *     body: {"system_prompt": "..." | null}   header: X-CSRF-Token
+ *   -> 202 {"status": "thread_system_prompt_set"} — emits thread_system_prompt_set
+ *      (step-03 chunk D9). A null/blank value CLEARS the override; the effective
+ *      prompt then falls back to the user's global default.
+ *
  * Auth mirrors {@see ApiThreadAttachmentController} exactly: form_login
  * session, ROLE_USER, the shared 'chat' CSRF intention, and a
  * thread-belongs-to-tenant guard so one tenant can never mutate another
@@ -122,6 +128,35 @@ final class ApiThreadController extends AbstractController
         );
 
         return new JsonResponse(['status' => 'thread_archived'], Response::HTTP_ACCEPTED);
+    }
+
+    #[Route('/{threadId}/system-prompt', name: 'system_prompt', methods: ['PUT'], requirements: ['threadId' => '[0-9a-f-]{36}'])]
+    public function setSystemPrompt(string $threadId, Request $request): JsonResponse
+    {
+        $this->validateCsrf($request);
+        $membership = $this->resolveMembershipOrAbort();
+        $threadUuid = $this->resolveThreadOrAbort($threadId, $membership);
+
+        $payload = $this->decodeJson($request);
+        $raw = $payload['system_prompt'] ?? null;
+        if (null !== $raw && !\is_string($raw)) {
+            return $this->validationError('system_prompt must be a string or null.');
+        }
+        // Normalize at the boundary: a blank string clears the override (stored
+        // value is either a non-empty prompt or null). decision 5.
+        $value = (null === $raw || '' === trim($raw)) ? null : $raw;
+
+        /** @var User $user */
+        $user = $this->getUser();
+
+        $this->lifecycle->setSystemPrompt(
+            $threadUuid,
+            $membership->getTenant()->getId(),
+            $value,
+            $user->getId()->toRfc4122(),
+        );
+
+        return new JsonResponse(['status' => 'thread_system_prompt_set'], Response::HTTP_ACCEPTED);
     }
 
     private function resolveThreadOrAbort(string $threadId, Membership $membership): Uuid

@@ -6,6 +6,7 @@ namespace App\Tests\Unit\Conversation\Event\Payload;
 
 use App\Conversation\Event\Payload\ThreadArchived;
 use App\Conversation\Event\Payload\ThreadRenamed;
+use App\Conversation\Event\Payload\ThreadSystemPromptSet;
 use App\Enum\ConversationEventType;
 use PHPUnit\Framework\TestCase;
 
@@ -37,5 +38,21 @@ final class ThreadLifecyclePayloadTest extends TestCase
 
         self::assertSame(ConversationEventType::THREAD_ARCHIVED, $payload->type());
         self::assertSame([], $payload->toArray());
+    }
+
+    public function testSystemPromptSetSerializesPrompt(): void
+    {
+        $payload = new ThreadSystemPromptSet('You are a terse assistant.');
+
+        self::assertSame(ConversationEventType::THREAD_SYSTEM_PROMPT_SET, $payload->type());
+        self::assertSame(['system_prompt' => 'You are a terse assistant.'], $payload->toArray());
+    }
+
+    public function testSystemPromptSetCarriesNullToClearOverride(): void
+    {
+        $payload = new ThreadSystemPromptSet(null);
+
+        self::assertSame(ConversationEventType::THREAD_SYSTEM_PROMPT_SET, $payload->type());
+        self::assertSame(['system_prompt' => null], $payload->toArray());
     }
 }

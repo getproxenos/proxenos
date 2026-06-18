@@ -106,6 +106,7 @@ final class ChatRespondLoop
         private readonly EntityManagerInterface $em,
         private readonly PromptAssembler $prompts,
         private readonly TurnCancellation $cancellation,
+        private readonly SystemPromptResolver $systemPrompts,
         private readonly LoggerInterface $logger = new NullLogger(),
     ) {
     }
@@ -127,7 +128,19 @@ final class ChatRespondLoop
         //    context contributions are prepended as a system segment AHEAD OF
         //    the conversation history. Zero attachments -> zero contributions
         //    -> identical MessageBag to the old dumb path.
-        $contributions = $this->prompts->assemble($request->threadId, $request->tenantId);
+        //
+        //    System prompt (step-03 chunk D9, decision 5/7): purely additive
+        //    over the step-02 entity path. The resolver returns at most one
+        //    weight-0 contribution (override > global default > none); we merge
+        //    it with the entity contributions and hand the combined list to the
+        //    SAME assemblePrompt() — which already sorts by weight ascending, so
+        //    the ordered contract [ systemPrompt(0), entityContext(100),
+        //    conversationHistory ] holds. When there is no system prompt AND no
+        //    attachments the merge collapses to [] and the MessageBag is
+        //    byte-identical to the step-02 path (regression guard).
+        $entityContributions = $this->prompts->assemble($request->threadId, $request->tenantId);
+        $systemContribution = $this->systemPrompts->forThread($request->threadId, $request->tenantId, $request->userId);
+        $contributions = array_merge(array_filter([$systemContribution]), $entityContributions);
         $messageBag = $this->assemblePrompt($request->threadId, $contributions);
 
         // 3. resolve profile -> Platform + model id + options
