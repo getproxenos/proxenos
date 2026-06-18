@@ -67,6 +67,15 @@ export interface ThreadState {
   activeTurnId: string | null
   /** Last error_summary when runStatus === 'failed'. */
   errorSummary: string | null
+  /**
+   * True once a cursor-replay (`hydrateThread`) has completed for this thread,
+   * regardless of whether it returned events. Distinguishes the honest
+   * "pre-hydration loading" surface from an actually-empty thread (D6): a
+   * freshly-selected thread starts `false`; the shell flips it via
+   * `markHydrated` after the replay attempt settles. Folds preserve it (they
+   * spread the prior thread), so live deltas never reset it.
+   */
+  hydrated: boolean
 }
 
 /**

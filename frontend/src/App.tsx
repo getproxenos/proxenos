@@ -8,8 +8,10 @@ import {
   foldEvents,
   initialStoreState,
   markCancelRequested,
+  markHydrated,
   setCurrentThread,
 } from './store/reducer'
+import { deriveThreadView } from './store/threadView'
 import {
   archiveThread,
   fetchAllEventsAfter,
@@ -77,11 +79,17 @@ export function App() {
     })
     try {
       const events = await fetchAllEventsAfter(threadId, afterSequence)
-      if (events.length === 0) return
-      setStoreState((prev) => foldEvents(prev, events))
+      if (events.length > 0) setStoreState((prev) => foldEvents(prev, events))
     } catch {
       // Replay failure leaves the SPA reading whatever live events
       // arrive; the next reconnect/open triggers another attempt.
+    } finally {
+      // Mark hydrated once the replay attempt settles (success OR failure) so a
+      // genuinely empty thread stops showing the loading placeholder instead of
+      // stalling silently (D6). On failure this surfaces the empty state rather
+      // than an honest "failed to load" — see D6 soft flag; live events still
+      // fold in if/when they arrive.
+      setStoreState((prev) => markHydrated(prev, threadId))
     }
   }, [])
 
@@ -342,7 +350,7 @@ export function App() {
                 path="threads/:id"
                 element={
                   <ThreadRoute onSelect={selectThread}>
-                    <ThreadSurface />
+                    <ThreadSurface view={deriveThreadView(currentThread)} />
                   </ThreadRoute>
                 }
               />

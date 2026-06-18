@@ -285,6 +285,56 @@ body {
     box-shadow: 0 2px 8px color-mix(in srgb, currentColor 20%, transparent);
 }
 
+/* --- D6: honest empty / loading / FAILED / CANCELLED status surfaces --- */
+
+.thread-loading,
+.thread-empty {
+    margin: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    text-align: center;
+    opacity: 0.6;
+}
+
+.thread-empty {
+    font-style: italic;
+}
+
+/* Banner shown after the message list for a terminal/transient run state. */
+.thread-status {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    margin-top: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+}
+
+/* FAILED is an honest error affordance — warm border + summary text. */
+.thread-status-failed {
+    border-color: color-mix(in srgb, #c0392b 55%, transparent);
+    background: color-mix(in srgb, #c0392b 8%, transparent);
+    color: #c0392b;
+}
+
+/* CANCELLED / cancelling are neutral "stopped" notices — NOT error styling. */
+.thread-status-cancelled,
+.thread-status-cancelling {
+    opacity: 0.7;
+}
+
+.thread-status-title {
+    font-size: 0.875rem;
+}
+
+.thread-status-detail {
+    font-size: 0.8125rem;
+    opacity: 0.8;
+    white-space: pre-wrap;
+}
+
 /* --- D5: per-message + per-code-block copy --- */
 
 .message-actions {

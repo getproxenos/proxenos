@@ -7,7 +7,9 @@ import {
 } from '@assistant-ui/react'
 
 import { MarkdownText } from './MarkdownText'
+import { ThreadPlaceholder, ThreadStatusBanner } from './ThreadStatus'
 import { shouldShowJumpToLatest } from '../store/scrollState'
+import type { ThreadView } from '../store/threadView'
 
 /**
  * Center active-thread area: the assistant-ui message viewport + composer.
@@ -20,33 +22,49 @@ import { shouldShowJumpToLatest } from '../store/scrollState'
  *    `autoScroll`, on by default) and surfaces a "jump to latest" button when
  *    the reader has scrolled up (see {@link JumpToLatest}).
  *
- * It reads from the host-owned `ExternalStoreRuntime` provided by the shell.
+ * D6 honest status rendering: the shell hands a `view` (derived purely from
+ * reducer state via {@link deriveThreadView}). Pre-hydration shows a loading
+ * placeholder, a hydrated-but-empty thread an empty placeholder, and a thread
+ * with messages renders them plus a terminal/transient banner — a FAILED turn
+ * keeps its partial text with an honest error affordance, a CANCELLED turn
+ * keeps its partial text marked "stopped" (never the failure banner). The
+ * composer stays mounted throughout so a fresh/empty thread can be typed into.
+ *
+ * It reads message data from the host-owned `ExternalStoreRuntime` provided by
+ * the shell; the `view` carries the reducer status the runtime doesn't expose.
  */
-export function ThreadSurface() {
+export function ThreadSurface({ view }: { view: ThreadView }) {
   const viewportRef = useRef<HTMLDivElement>(null)
 
   return (
     <ThreadPrimitive.Root className="thread">
       <div className="thread-viewport-wrap">
         <ThreadPrimitive.Viewport ref={viewportRef}>
-          <ThreadPrimitive.Messages
-            components={{
-              UserMessage: () => (
-                <div className="message message-user">
-                  <span className="message-role">user</span>
-                  <MessagePrimitive.Parts components={{ Text: MarkdownText }} />
-                  <MessageActions />
-                </div>
-              ),
-              AssistantMessage: () => (
-                <div className="message message-assistant">
-                  <span className="message-role">assistant</span>
-                  <MessagePrimitive.Parts components={{ Text: MarkdownText }} />
-                  <MessageActions />
-                </div>
-              ),
-            }}
-          />
+          {view.status === 'ready' ? (
+            <>
+              <ThreadPrimitive.Messages
+                components={{
+                  UserMessage: () => (
+                    <div className="message message-user">
+                      <span className="message-role">user</span>
+                      <MessagePrimitive.Parts components={{ Text: MarkdownText }} />
+                      <MessageActions />
+                    </div>
+                  ),
+                  AssistantMessage: () => (
+                    <div className="message message-assistant">
+                      <span className="message-role">assistant</span>
+                      <MessagePrimitive.Parts components={{ Text: MarkdownText }} />
+                      <MessageActions />
+                    </div>
+                  ),
+                }}
+              />
+              <ThreadStatusBanner banner={view.banner} />
+            </>
+          ) : (
+            <ThreadPlaceholder status={view.status} />
+          )}
         </ThreadPrimitive.Viewport>
         <JumpToLatest viewportRef={viewportRef} />
       </div>

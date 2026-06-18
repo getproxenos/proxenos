@@ -45,6 +45,7 @@ export const initialThreadState = (threadId: string): ThreadState => ({
   runStatus: 'idle',
   activeTurnId: null,
   errorSummary: null,
+  hydrated: false,
 })
 
 export const initialStoreState = (): ConversationStoreState => ({
@@ -304,6 +305,30 @@ export const markCancelRequested = (
     threadsById: {
       ...withThread.threadsById,
       [threadId]: { ...thread, runStatus: 'cancelling' },
+    },
+  }
+}
+
+/**
+ * Mark a thread's cursor-replay (`hydrateThread`) as settled — the signal D6's
+ * `deriveThreadView` reads to tell "pre-hydration loading" apart from a
+ * genuinely empty thread. The shell calls this once the replay attempt
+ * completes (success OR failure), so an empty thread stops spinning instead of
+ * stalling silently. Reference-stable once already hydrated, so a re-hydrate
+ * (reconnect replay) is a no-op that won't churn the store.
+ */
+export const markHydrated = (
+  state: ConversationStoreState,
+  threadId: string,
+): ConversationStoreState => {
+  const withThread = ensureThread(state, threadId)
+  const thread = withThread.threadsById[threadId]!
+  if (thread.hydrated) return withThread
+  return {
+    ...withThread,
+    threadsById: {
+      ...withThread.threadsById,
+      [threadId]: { ...thread, hydrated: true },
     },
   }
 }
