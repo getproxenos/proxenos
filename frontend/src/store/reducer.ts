@@ -127,6 +127,8 @@ const foldIntoThread = (thread: ThreadState, event: ConversationEventEnvelope): 
       return applyAssistantTurnCompleted(thread, event, seenEventIds, lastSeenSequence)
     case 'assistant_turn_failed':
       return applyAssistantTurnFailed(thread, event, seenEventIds, lastSeenSequence)
+    case 'assistant_turn_cancelled':
+      return applyAssistantTurnCancelled(thread, event, seenEventIds, lastSeenSequence)
   }
 }
 
@@ -232,6 +234,41 @@ const applyAssistantTurnFailed = (
     activeTurnId: null,
     errorSummary:
       typeof event.payload.error_summary === 'string' ? event.payload.error_summary : null,
+  }
+}
+
+/**
+ * Cooperative-cancel terminal (D7 backend `assistant_turn_cancelled`,
+ * handoff §4 case 5). Mirrors {@link applyAssistantTurnFailed}: settle
+ * `runStatus`, clear `activeTurnId`, and mark the partial assistant message
+ * — but `'cancelled'` rather than `'failed'`, since a stopped turn is not an
+ * error. `errorSummary` is intentionally left untouched (a cancel carries no
+ * error; D7 emits `error_summary: ''`). Idempotent: a duplicate/late
+ * envelope is dropped by `foldEvent`'s `seenEventIds`/sequence guards before
+ * this runs, so the terminal folds exactly once. Reads the D7 payload keys
+ * `{ message_id, finish_reason: 'cancelled', error_summary }`.
+ */
+const applyAssistantTurnCancelled = (
+  thread: ThreadState,
+  event: ConversationEventEnvelope,
+  seenEventIds: Set<string>,
+  lastSeenSequence: number,
+): ThreadState => {
+  const rawMessageId = event.payload.message_id
+  const messageId = typeof rawMessageId === 'string' ? rawMessageId : null
+  const messages =
+    messageId === null
+      ? thread.messages
+      : thread.messages.map((m) =>
+          m.id === messageId ? { ...m, status: 'cancelled' as const } : m,
+        )
+  return {
+    ...thread,
+    seenEventIds,
+    lastSeenSequence,
+    messages,
+    runStatus: 'cancelled',
+    activeTurnId: null,
   }
 }
 

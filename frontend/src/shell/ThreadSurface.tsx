@@ -53,7 +53,21 @@ export function ThreadSurface() {
 
       <ComposerPrimitive.Root className="composer">
         <ComposerPrimitive.Input className="composer-input" placeholder="Say something…" />
-        <ComposerPrimitive.Send className="composer-send">Send</ComposerPrimitive.Send>
+        {/*
+         * Stop ⇄ Send swap on the run lifecycle (D8, handoff §4 case 5). The
+         * shell's `useExternalStoreRuntime` reports `isRunning` for both
+         * 'streaming' and 'cancelling', so Stop stays visible through the
+         * 'cancelling' transient and reverts to Send only once the terminal
+         * `assistant_turn_cancelled` (or completed/failed) settles the run.
+         * `Composer.Cancel` invokes the runtime `onCancel` wired in App.tsx
+         * (`markCancelRequested` → POST …/cancel).
+         */}
+        <ThreadPrimitive.If running={false}>
+          <ComposerPrimitive.Send className="composer-send">Send</ComposerPrimitive.Send>
+        </ThreadPrimitive.If>
+        <ThreadPrimitive.If running>
+          <ComposerPrimitive.Cancel className="composer-cancel">Stop</ComposerPrimitive.Cancel>
+        </ThreadPrimitive.If>
       </ComposerPrimitive.Root>
     </ThreadPrimitive.Root>
   )

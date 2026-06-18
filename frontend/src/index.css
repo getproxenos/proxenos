@@ -242,7 +242,8 @@ body {
     font: inherit;
 }
 
-.composer-send {
+.composer-send,
+.composer-cancel {
     padding: 0.5rem 1rem;
     border-radius: 0.5rem;
     border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
@@ -250,6 +251,12 @@ body {
     color: inherit;
     font: inherit;
     cursor: pointer;
+}
+
+/* Stop button stands out against Send while the turn is running/cancelling. */
+.composer-cancel {
+    border-color: color-mix(in srgb, #c0392b 60%, transparent);
+    color: #c0392b;
 }
 
 /* --- D5: viewport + jump-to-latest --- */

@@ -273,6 +273,85 @@ describe('assistant_turn_failed projection', () => {
   })
 })
 
+describe('assistant_turn_cancelled projection (D8 / handoff §4 case 5)', () => {
+  const cancelEvent = (id = 'evt-cancelled'): ConversationEventEnvelope =>
+    makeEvent({
+      id,
+      sequence: 4,
+      type: 'assistant_turn_cancelled',
+      turn_id: TURN_ID,
+      payload: { message_id: ASSISTANT_MSG_ID, finish_reason: 'cancelled', error_summary: '' },
+    })
+
+  it('settles a cancel-before-terminal run onto the cancelled event', () => {
+    // user + turn-created + a delta → an in-flight assistant message.
+    let state = foldEvents(initialStoreState(), [
+      canonicalTurn()[0]!,
+      canonicalTurn()[1]!,
+      canonicalTurn()[2]!,
+    ])
+    expect(state.threadsById[TENANT_THREAD_A]!.runStatus).toBe('streaming')
+
+    // User clicks Stop before any terminal arrives.
+    state = markCancelRequested(state, TENANT_THREAD_A)
+    expect(state.threadsById[TENANT_THREAD_A]!.runStatus).toBe('cancelling')
+
+    // The loop's terminal cancelled event settles the held run.
+    state = foldEvent(state, cancelEvent())
+    const thread = state.threadsById[TENANT_THREAD_A]!
+    expect(thread.runStatus).toBe('cancelled')
+    expect(thread.activeTurnId).toBeNull()
+    // The partial assistant text is preserved, marked stopped (not failed).
+    expect(thread.messages[1]!.text).toBe('hi back')
+    expect(thread.messages[1]!.status).toBe('cancelled')
+    // A cancel is not an error — errorSummary stays clear.
+    expect(thread.errorSummary).toBeNull()
+  })
+
+  it('settles even with no assistant delta (message_id null → no message mutated)', () => {
+    let state = foldEvents(initialStoreState(), [canonicalTurn()[0]!, canonicalTurn()[1]!])
+    state = markCancelRequested(state, TENANT_THREAD_A)
+    state = foldEvent(
+      state,
+      makeEvent({
+        id: 'evt-cancelled-nodelta',
+        sequence: 4,
+        type: 'assistant_turn_cancelled',
+        turn_id: TURN_ID,
+        payload: { message_id: null, finish_reason: 'cancelled', error_summary: '' },
+      }),
+    )
+    const thread = state.threadsById[TENANT_THREAD_A]!
+    expect(thread.runStatus).toBe('cancelled')
+    expect(thread.activeTurnId).toBeNull()
+    // Only the user message exists; nothing to mark.
+    expect(thread.messages).toHaveLength(1)
+    expect(thread.messages[0]!.role).toBe('user')
+  })
+
+  it('folds a duplicate / late cancelled event exactly once (idempotent)', () => {
+    let state = foldEvents(initialStoreState(), [
+      canonicalTurn()[0]!,
+      canonicalTurn()[1]!,
+      canonicalTurn()[2]!,
+    ])
+    state = foldEvent(state, cancelEvent())
+    const settled = state.threadsById[TENANT_THREAD_A]!
+    expect(settled.runStatus).toBe('cancelled')
+    expect(settled.messages[1]!.status).toBe('cancelled')
+
+    // Same envelope (same id) arriving again — live+replay race, or a late
+    // re-delivery — must not re-fold or regress the settled run.
+    state = foldEvent(state, cancelEvent())
+    const after = state.threadsById[TENANT_THREAD_A]!
+    expect(after.runStatus).toBe('cancelled')
+    expect(after.messages).toHaveLength(2)
+    expect(after.messages[1]!.status).toBe('cancelled')
+    // State is reference-stable on the no-op re-fold (dedup short-circuits).
+    expect(after).toBe(settled)
+  })
+})
+
 describe('initial state helpers', () => {
   it('seeds an empty thread state', () => {
     const t = initialThreadState(TENANT_THREAD_A)
