@@ -406,3 +406,48 @@ describe('initial state helpers', () => {
     expect(t.runStatus).toBe('idle')
   })
 })
+
+describe('thread-list lifecycle events over the live envelope', () => {
+  // Regression: thread_renamed / thread_archived ride the same Mercure/replay
+  // envelope as message events. Before they were added to the union + switch,
+  // they fell through foldIntoThread() and wrote `undefined` into
+  // threadsById[thread_id], corrupting the active thread the first time a new
+  // thread auto-titled via thread_renamed.
+  it('folds thread_renamed without corrupting the per-thread store', () => {
+    let state = foldEvents(initialStoreState(), canonicalTurn())
+
+    state = foldEvent(
+      state,
+      makeEvent({
+        id: 'evt-renamed',
+        sequence: 5,
+        type: 'thread_renamed',
+        payload: { title: 'Auto-titled thread' },
+      }),
+    )
+
+    const thread = state.threadsById[TENANT_THREAD_A]!
+    // Still a valid ThreadState (not undefined) and cursor advanced.
+    expect(thread).toBeDefined()
+    expect(thread.threadId).toBe(TENANT_THREAD_A)
+    expect(thread.lastSeenSequence).toBe(5)
+    expect(thread.seenEventIds.has('evt-renamed')).toBe(true)
+    // Message/run state untouched — the title lives in the thread-list adapter.
+    expect(thread.messages).toHaveLength(2)
+    expect(thread.runStatus).toBe('completed')
+  })
+
+  it('folds thread_archived as a cursor-advancing no-op', () => {
+    let state = foldEvents(initialStoreState(), canonicalTurn())
+
+    state = foldEvent(
+      state,
+      makeEvent({ id: 'evt-archived', sequence: 5, type: 'thread_archived' }),
+    )
+
+    const thread = state.threadsById[TENANT_THREAD_A]!
+    expect(thread).toBeDefined()
+    expect(thread.lastSeenSequence).toBe(5)
+    expect(thread.messages).toHaveLength(2)
+  })
+})

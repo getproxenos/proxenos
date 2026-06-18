@@ -6,6 +6,8 @@ namespace App\Tests\Functional\Api;
 
 use App\Entity\Membership;
 use App\Entity\Tenant;
+use App\Entity\Thread;
+use App\Entity\Turn;
 use App\Entity\User;
 use App\Enum\MembershipRole;
 use App\Tests\Support\ControllableTurnCancellation;
@@ -33,6 +35,7 @@ final class ApiChatCancelTest extends WebTestCase
     private KernelBrowser $client;
     private EntityManagerInterface $em;
     private ControllableTurnCancellation $cancellation;
+    private Uuid $tenantId;
 
     protected function setUp(): void
     {
@@ -56,6 +59,8 @@ final class ApiChatCancelTest extends WebTestCase
         $this->em->persist(new Membership($user, $tenant, MembershipRole::OWNER, $clock));
         $this->em->flush();
 
+        $this->tenantId = $tenant->getId();
+
         $this->cancellation = $container->get(ControllableTurnCancellation::class);
         $this->cancellation->reset();
     }
@@ -72,7 +77,7 @@ final class ApiChatCancelTest extends WebTestCase
         $csrf = $this->bootstrapCsrfToken();
 
         $threadId = Uuid::v7();
-        $turnId = Uuid::v7();
+        $turnId = $this->persistTurn($threadId, $this->tenantId);
 
         self::assertFalse($this->cancellation->isRequested($turnId), 'no signal before the request');
 
@@ -87,6 +92,84 @@ final class ApiChatCancelTest extends WebTestCase
         self::assertSame('cancel_requested', $body['status']);
 
         self::assertTrue($this->cancellation->isRequested($turnId), 'the endpoint records the cooperative-cancel request');
+    }
+
+    public function testCancelRejectsAnUnknownTurnWithoutSettingTheSignal(): void
+    {
+        $this->loginAs('a@example.com');
+        $csrf = $this->bootstrapCsrfToken();
+
+        $threadId = Uuid::v7();
+        $turnId = Uuid::v7(); // never persisted
+
+        $this->client->request(
+            'POST',
+            '/api/threads/'.$threadId->toRfc4122().'/runs/'.$turnId->toRfc4122().'/cancel',
+            server: ['HTTP_X_CSRF_TOKEN' => $csrf],
+        );
+
+        self::assertSame(404, $this->client->getResponse()->getStatusCode());
+        self::assertFalse($this->cancellation->isRequested($turnId), 'an unknown turn must never set the signal');
+    }
+
+    public function testCancelRejectsATurnThatBelongsToADifferentThread(): void
+    {
+        $this->loginAs('a@example.com');
+        $csrf = $this->bootstrapCsrfToken();
+
+        // The turn is real and same-tenant, but the route names another thread.
+        $turnThreadId = Uuid::v7();
+        $turnId = $this->persistTurn($turnThreadId, $this->tenantId);
+        $routeThreadId = Uuid::v7();
+
+        $this->client->request(
+            'POST',
+            '/api/threads/'.$routeThreadId->toRfc4122().'/runs/'.$turnId->toRfc4122().'/cancel',
+            server: ['HTTP_X_CSRF_TOKEN' => $csrf],
+        );
+
+        self::assertSame(404, $this->client->getResponse()->getStatusCode());
+        self::assertFalse($this->cancellation->isRequested($turnId), 'a turn under another thread must not be cancellable via a mismatched route');
+    }
+
+    public function testCancelRejectsATurnOwnedByAnotherTenant(): void
+    {
+        // A victim turn the attacker has the UUID for, owned by a foreign tenant.
+        $foreignTenant = new Tenant('beta', 'Beta', Clock::get());
+        $this->em->persist($foreignTenant);
+        $this->em->flush();
+
+        $threadId = Uuid::v7();
+        $turnId = $this->persistTurn($threadId, $foreignTenant->getId());
+
+        $this->loginAs('a@example.com');
+        $csrf = $this->bootstrapCsrfToken();
+
+        $this->client->request(
+            'POST',
+            '/api/threads/'.$threadId->toRfc4122().'/runs/'.$turnId->toRfc4122().'/cancel',
+            server: ['HTTP_X_CSRF_TOKEN' => $csrf],
+        );
+
+        self::assertSame(404, $this->client->getResponse()->getStatusCode());
+        self::assertFalse($this->cancellation->isRequested($turnId), 'cross-tenant possession of a turn UUID must not cancel the run');
+    }
+
+    /**
+     * Persist a Turn projection plus the backing Thread it references (the
+     * `fk_turns_thread` constraint requires the thread to exist). The tenant
+     * must already exist — `threads.tenant_id` is FK-constrained.
+     */
+    private function persistTurn(Uuid $threadId, Uuid $tenantId): Uuid
+    {
+        $turnId = Uuid::v7();
+        $now = Clock::get()->now();
+        $this->em->persist(new Thread($threadId, $tenantId, null, $now));
+        $this->em->persist(new Turn($turnId, $threadId, $tenantId, 1, $now));
+        $this->em->flush();
+        $this->em->clear();
+
+        return $turnId;
     }
 
     private function bootstrapCsrfToken(): string

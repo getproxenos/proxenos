@@ -93,6 +93,22 @@ describe('ThreadSidebar', () => {
     expect(onRename).toHaveBeenCalledWith('to-rename', 'New title')
   })
 
+  it('sends a single rename when Enter is followed by the input blur', () => {
+    // Regression: Enter commits AND unmounts the input, whose blur fired a
+    // second commit, appending a duplicate thread_renamed event.
+    const onRename = vi.fn().mockResolvedValue(undefined)
+    renderSidebar({ threads: [item({ id: 'to-rename', title: 'Old' })], onRename })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rename thread' }))
+    const input = screen.getByRole('textbox', { name: 'Rename thread' })
+    fireEvent.change(input, { target: { value: 'New title' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    fireEvent.blur(input)
+
+    expect(onRename).toHaveBeenCalledTimes(1)
+    expect(onRename).toHaveBeenCalledWith('to-rename', 'New title')
+  })
+
   it('rejects an over-long title client-side without calling onRename', () => {
     const onRename = vi.fn()
     renderSidebar({ threads: [item({ id: 'to-rename', title: 'Old' })], onRename })

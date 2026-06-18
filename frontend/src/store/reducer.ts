@@ -131,6 +131,16 @@ const foldIntoThread = (thread: ThreadState, event: ConversationEventEnvelope): 
       return applyAssistantTurnFailed(thread, event, seenEventIds, lastSeenSequence)
     case 'assistant_turn_cancelled':
       return applyAssistantTurnCancelled(thread, event, seenEventIds, lastSeenSequence)
+    case 'thread_renamed':
+    case 'thread_archived':
+      // Thread-list lifecycle (D2): title/archived state lives in the sidebar's
+      // thread-list adapter (`GET /api/threads`), NOT the per-thread message
+      // store. These frames ride the same Mercure/replay envelope, so the
+      // reducer MUST still fold them — but only to advance the cursor and
+      // dedup set. Skipping the case would fall through the switch and write
+      // `undefined` into `threadsById`, corrupting the active thread the first
+      // time a new thread auto-titles via `thread_renamed`.
+      return { ...thread, seenEventIds, lastSeenSequence }
     case 'thread_system_prompt_set':
       return applyThreadSystemPromptSet(thread, event, seenEventIds, lastSeenSequence)
   }

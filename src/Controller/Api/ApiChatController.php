@@ -11,6 +11,7 @@ use App\Conversation\Title\ThreadAutoTitler;
 use App\Entity\User;
 use App\Repository\MembershipRepository;
 use App\Repository\ThreadRepository;
+use App\Repository\TurnRepository;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -55,6 +56,7 @@ final class ApiChatController extends AbstractController
     public function __construct(
         private readonly MembershipRepository $memberships,
         private readonly ThreadRepository $threads,
+        private readonly TurnRepository $turns,
         private readonly ChatRespondLoop $loop,
         private readonly CsrfTokenManagerInterface $csrf,
         private readonly ThreadAutoTitler $autoTitler,
@@ -120,10 +122,21 @@ final class ApiChatController extends AbstractController
         $this->validateCsrf($request);
         $membership = $this->resolveMembershipOrAbort();
         $threadUuid = Uuid::fromString($threadId);
+        $turnUuid = Uuid::fromString($turnId);
 
-        $existing = $this->threads->find($threadUuid);
-        if (null !== $existing && !$existing->getTenantId()->equals($membership->getTenant()->getId())) {
-            throw $this->createAccessDeniedException('Thread does not belong to current tenant.');
+        // Ownership gate: the streaming loop polls cancellation by turn ID
+        // alone, so possession of a turn UUID must NOT be enough to cancel a
+        // run. Load the canonical Turn projection and require it to exist and
+        // to belong to BOTH the route thread and the authenticated tenant
+        // before setting the signal. A 404 (rather than 403) is uniform across
+        // "missing", "wrong thread", and "cross-tenant" so the endpoint never
+        // confirms the existence of someone else's turn.
+        $turn = $this->turns->find($turnUuid);
+        if (null === $turn
+            || !$turn->getThreadId()->equals($threadUuid)
+            || !$turn->getTenantId()->equals($membership->getTenant()->getId())
+        ) {
+            throw $this->createNotFoundException('Turn not found.');
         }
 
         // Cooperative cancel (step-03 chunk D7, decision 4): record the
@@ -133,7 +146,7 @@ final class ApiChatController extends AbstractController
         // itself. The SPA's reconciliation case 5 ("cancel requested, no
         // terminal event yet") holds the cancelling state until that event
         // arrives — this endpoint only sets the signal and returns 202.
-        $this->cancellation->request(Uuid::fromString($turnId));
+        $this->cancellation->request($turnUuid);
 
         return new JsonResponse([
             'thread_id' => $threadId,

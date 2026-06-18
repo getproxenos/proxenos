@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { newThreadId, threadDisplayTitle } from '../store/threadList'
@@ -37,6 +37,11 @@ export function ThreadSidebar({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftTitle, setDraftTitle] = useState('')
   const [renameError, setRenameError] = useState<string | null>(null)
+  // Re-entrancy guard: pressing Enter commits AND unmounts the input, whose
+  // blur fires a second commitRename for the same edit. Without this, each
+  // accepted rename would append a duplicate `thread_renamed` event. A ref
+  // (not state) so the second synchronous call sees the flag immediately.
+  const committingRef = useRef(false)
 
   const startNewThread = (): void => {
     navigate(threadRoutePath(newThreadId()))
@@ -54,6 +59,8 @@ export function ThreadSidebar({
   }
 
   const commitRename = async (id: string): Promise<void> => {
+    // Drop the duplicate commit from the Enter→blur sequence (see committingRef).
+    if (committingRef.current) return
     const title = draftTitle.trim()
     if (title === '') {
       // Empty rename is a no-op cancel, not an error.
@@ -64,12 +71,15 @@ export function ThreadSidebar({
       setRenameError(`Title must be ${MAX_TITLE_LENGTH} characters or fewer.`)
       return
     }
+    committingRef.current = true
     setEditingId(null)
     try {
       await onRename(id, title)
       setRenameError(null)
     } catch {
       setRenameError('Could not rename the thread. Please try again.')
+    } finally {
+      committingRef.current = false
     }
   }
 

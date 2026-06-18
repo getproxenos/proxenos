@@ -14,6 +14,8 @@ export type ConversationEventType =
   | 'assistant_turn_completed'
   | 'assistant_turn_failed'
   | 'assistant_turn_cancelled'
+  | 'thread_renamed'
+  | 'thread_archived'
   | 'thread_system_prompt_set'
 
 export type ActorType = 'user' | 'assistant' | 'connector' | 'system' | 'extension'
