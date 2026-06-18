@@ -17,23 +17,98 @@ body {
     margin: 0;
 }
 
-.app {
-    max-width: 48rem;
-    margin: 0 auto;
-    padding: 2rem 1rem;
+.app-shell {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
-    min-height: 100vh;
+    height: 100vh;
 }
 
-.app-header h1 {
-    margin: 0 0 0.25rem;
-    font-size: 1.5rem;
+.app-topbar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent);
 }
 
-.app-header p {
+.app-brand {
+    font-weight: 600;
+}
+
+.app-usermenu {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.app-tenant {
+    opacity: 0.7;
+}
+
+.app-user-email {
+    opacity: 0.9;
+}
+
+.app-signout {
     margin: 0;
+}
+
+.app-signout button {
+    padding: 0.35rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.app-error {
+    margin: 0;
+    color: #b91c1c;
+}
+
+.app-body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
+
+.app-sidebar {
+    width: 16rem;
+    flex-shrink: 0;
+    padding: 1rem;
+    border-right: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+    overflow-y: auto;
+}
+
+.app-sidebar-title {
+    margin: 0 0 0.5rem;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.6;
+}
+
+.app-sidebar-placeholder {
+    margin: 0;
+    opacity: 0.6;
+    font-style: italic;
+}
+
+.app-main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+    overflow-y: auto;
+}
+
+.app-empty {
+    margin: auto;
+    text-align: center;
     opacity: 0.7;
 }
 

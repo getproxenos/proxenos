@@ -25,7 +25,9 @@ security:
                 enable_csrf: true
                 username_parameter: _username
                 password_parameter: _password
-                default_target_path: me
+                # The SPA is the default post-login entry point (decision 8).
+                # The /me placeholder may stay but is no longer the target.
+                default_target_path: app
             logout:
                 path: logout
                 target: home
@@ -34,6 +36,11 @@ security:
         - path: ^/login$
           roles: PUBLIC_ACCESS
         - path: ^/me
+          roles: ROLE_USER
+        # SPA shell (decision 8): catch-all served by SpaController. Anonymous
+        # users get a 302 redirect to /login (form_login on the main firewall),
+        # mirroring ^/me — distinct from the JSON-401 ^/api contract below.
+        - path: ^/app
           roles: ROLE_USER
         # SPA API surface (ADR-026): same firewall as Twig, but unauthenticated
         # calls get JSON 401 instead of a 302 redirect to /login (matches the

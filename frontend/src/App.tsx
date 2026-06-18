@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  AssistantRuntimeProvider,
-  ComposerPrimitive,
-  MessagePrimitive,
-  ThreadPrimitive,
-  useExternalStoreRuntime,
-} from '@assistant-ui/react'
+import { Route, Routes } from 'react-router-dom'
+import { AssistantRuntimeProvider, useExternalStoreRuntime } from '@assistant-ui/react'
 import type { AppendMessage, ThreadMessageLike } from '@assistant-ui/react'
 
 import {
@@ -22,28 +17,40 @@ import {
   submitMessage,
   subscribeToTopic,
 } from './store/transport'
+import type { BootstrapDescriptor } from './store/transport'
+import { EmptyState } from './shell/EmptyState'
+import { ThreadRoute } from './shell/ThreadRoute'
+import { ThreadSidebar } from './shell/ThreadSidebar'
+import { ThreadSurface } from './shell/ThreadSurface'
+import { TopBar } from './shell/TopBar'
 import './index.css'
 
 /**
- * Real `ExternalStoreRuntime` adapter (handoff §4, ADR-026).
+ * Persistent SPA shell (decision 8, ADR-026, handoff §4).
  *
- * Replaces the Phase 0.0 echo scaffold from this same file. The store
- * is host-owned (`design-notes/streaming-runtime-notes.md` §4):
- * messages are projected from the event log via the reducer in
- * `./store/reducer.ts`, so live (Mercure) + replay (cursor endpoint)
- * fold through one union. assistant-ui only renders — it never owns
- * thread or branch state.
+ * The bootstrap / subscribe / hydrate logic is lifted UP into this shell so
+ * Mercure subscriptions survive client-side route changes: the shell mounts
+ * once under `BrowserRouter`, and switching threads only changes the route
+ * (and `currentThreadId`) — it never tears down the store or its
+ * subscriptions (the store is per-thread; handoff §4 case 3).
+ *
+ * Layout: a top bar (email + tenant + Sign out), a left thread sidebar
+ * (placeholder until D3's ThreadList), and a center routed area —
+ * `/app/threads/:id` selects + renders that thread, `/app` shows an
+ * empty-state landing.
  *
  * Live verification (NOT covered by Vitest — see PR test plan):
  *  - EventSource handshake against the real Mercure hub;
  *  - End-to-end streaming from Anthropic through the loop into the UI;
  *  - mercureAuthorization cookie attachment in a real browser.
  *
- * Reducer reconciliation (Vitest in `reducer.test.ts`) covers cases
- * 1–5 from `streaming-runtime-notes.md` §6.
+ * Reducer reconciliation (Vitest in `store/reducer.test.ts`) covers cases
+ * 1–5 from `streaming-runtime-notes.md` §6; the router→currentThread wiring
+ * and the sign-out target are covered in `shell/*.test.tsx`.
  */
 export function App() {
   const [storeState, setStoreState] = useState(initialStoreState)
+  const [boot, setBoot] = useState<BootstrapDescriptor | null>(null)
   const [bootstrapError, setBootstrapError] = useState<string | null>(null)
   const csrfTokenRef = useRef<string | null>(null)
   const hubUrlRef = useRef<string | null>(null)
@@ -92,36 +99,46 @@ export function App() {
   )
 
   /**
-   * Bootstrap + initial replay. Order matters:
+   * Select the thread named by the `/app/threads/:id` route: focus it,
+   * ensure a subscription (a no-op when bootstrap already covered it), and
+   * replay anything missed. Stable so `ThreadRoute`'s effect only re-fires on
+   * an actual id change, not on every shell render.
+   */
+  const selectThread = useCallback(
+    (threadId: string): void => {
+      setStoreState((prev) => setCurrentThread(prev, threadId))
+      subscribeThread(threadId)
+      void hydrateThread(threadId)
+    },
+    [subscribeThread, hydrateThread],
+  )
+
+  /**
+   * Bootstrap + initial subscription. Order matters:
    *  1. /api/me/bootstrap → identity, CSRF, Mercure descriptor.
-   *  2. For each subscribed topic, subscribe to Mercure FIRST.
-   *  3. THEN call /events?after=0 to backfill.
+   *  2. For each subscribed topic, subscribe to Mercure.
    *
-   * Subscribing before replaying is what makes case-1 (reconnect race)
-   * work: any live event that lands during replay also arrives via
-   * the cursor page, and the reducer dedupes on event id so both
-   * arrivals fold once (handoff §4).
+   * Subscribing before any replay is what makes case-1 (reconnect race)
+   * work: a live event landing during replay also arrives via the cursor
+   * page, and the reducer dedupes on event id so both fold once (handoff §4).
+   * Thread *selection* is now driven by the route (`ThreadRoute`), not by
+   * picking the first bootstrap topic.
    */
   useEffect(() => {
     let cancelled = false
     void (async () => {
       try {
-        const boot = await fetchBootstrap()
+        const descriptor = await fetchBootstrap()
         if (cancelled) return
-        csrfTokenRef.current = boot.csrf_token
-        hubUrlRef.current = boot.mercure.hub_url
+        csrfTokenRef.current = descriptor.csrf_token
+        hubUrlRef.current = descriptor.mercure.hub_url
+        setBoot(descriptor)
 
-        const threadIds = boot.mercure.subscribed_topics
+        const threadIds = descriptor.mercure.subscribed_topics
           .map(extractThreadIdFromTopic)
           .filter((x): x is string => x !== null)
 
         for (const threadId of threadIds) subscribeThread(threadId)
-
-        const firstThreadId = threadIds[0]
-        if (firstThreadId) {
-          setStoreState((prev) => setCurrentThread(prev, firstThreadId))
-          await hydrateThread(firstThreadId)
-        }
       } catch (err) {
         if (!cancelled) {
           setBootstrapError(err instanceof Error ? err.message : 'bootstrap failed')
@@ -134,7 +151,7 @@ export function App() {
       for (const unsubscribe of subscriptions.values()) unsubscribe()
       subscriptions.clear()
     }
-  }, [hydrateThread, subscribeThread])
+  }, [subscribeThread])
 
   const currentThread = storeState.currentThreadId
     ? storeState.threadsById[storeState.currentThreadId]
@@ -192,48 +209,29 @@ export function App() {
 
   return (
     <AssistantRuntimeProvider runtime={runtime}>
-      <main className="app">
-        <header className="app-header">
-          <h1>Proxenos</h1>
-          <p>
-            assistant-ui SPA —{' '}
-            {storeState.currentThreadId
-              ? `thread ${storeState.currentThreadId.slice(0, 8)}…`
-              : 'no thread selected'}
-          </p>
-          {bootstrapError && (
-            <p role="alert" className="app-error">
-              Bootstrap failed: {bootstrapError}
-            </p>
-          )}
-        </header>
-
-        <ThreadPrimitive.Root className="thread">
-          <ThreadPrimitive.Viewport>
-            <ThreadPrimitive.Messages
-              components={{
-                UserMessage: () => (
-                  <div className="message message-user">
-                    <span className="message-role">user</span>
-                    <MessagePrimitive.Parts />
-                  </div>
-                ),
-                AssistantMessage: () => (
-                  <div className="message message-assistant">
-                    <span className="message-role">assistant</span>
-                    <MessagePrimitive.Parts />
-                  </div>
-                ),
-              }}
-            />
-          </ThreadPrimitive.Viewport>
-
-          <ComposerPrimitive.Root className="composer">
-            <ComposerPrimitive.Input className="composer-input" placeholder="Say something…" />
-            <ComposerPrimitive.Send className="composer-send">Send</ComposerPrimitive.Send>
-          </ComposerPrimitive.Root>
-        </ThreadPrimitive.Root>
-      </main>
+      <div className="app-shell">
+        <TopBar
+          email={boot?.user.email ?? null}
+          tenantName={boot?.tenant.name ?? null}
+          bootstrapError={bootstrapError}
+        />
+        <div className="app-body">
+          <ThreadSidebar currentThreadId={storeState.currentThreadId} />
+          <main className="app-main">
+            <Routes>
+              <Route index element={<EmptyState />} />
+              <Route
+                path="threads/:id"
+                element={
+                  <ThreadRoute onSelect={selectThread}>
+                    <ThreadSurface />
+                  </ThreadRoute>
+                }
+              />
+            </Routes>
+          </main>
+        </div>
+      </div>
     </AssistantRuntimeProvider>
   )
 }
