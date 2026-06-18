@@ -6,6 +6,7 @@ namespace App\Controller\Api;
 
 use App\Ai\Chat\ChatRespondLoop;
 use App\Ai\Chat\ChatRespondRequest;
+use App\Ai\Chat\TurnCancellation;
 use App\Conversation\Title\ThreadAutoTitler;
 use App\Entity\User;
 use App\Repository\MembershipRepository;
@@ -33,11 +34,13 @@ use Symfony\Component\Uid\Uuid;
  *
  *   POST /api/threads/{id}/runs/{turnId}/cancel
  *     header: X-CSRF-Token
- *   -> stub. Records the intent; a follow-up wires cooperative
- *      cancellation through the loop (ADR-024 open question +
- *      ADR-025 assistant_turn_cancelled sketch). The SPA tolerates a
- *      "cancel requested, no terminal event yet" state by design
- *      (handoff §4 reconciliation case 5).
+ *   -> records the cooperative-cancel request in the cross-request
+ *      TurnCancellation store (step-03 chunk D7). The concurrently
+ *      streaming ChatRespondLoop polls it on each coalesced flush, stops
+ *      draining, and appends the terminal `assistant_turn_cancelled`
+ *      event. Returns 202; the SPA tolerates a "cancel requested, no
+ *      terminal event yet" state by design (handoff §4 reconciliation
+ *      case 5).
  *
  * Auth: same form_login session as Twig (handoff §3); CSRF token is
  * the 'chat' intention so the same token works for both surfaces
@@ -55,6 +58,7 @@ final class ApiChatController extends AbstractController
         private readonly ChatRespondLoop $loop,
         private readonly CsrfTokenManagerInterface $csrf,
         private readonly ThreadAutoTitler $autoTitler,
+        private readonly TurnCancellation $cancellation,
     ) {
     }
 
@@ -122,12 +126,15 @@ final class ApiChatController extends AbstractController
             throw $this->createAccessDeniedException('Thread does not belong to current tenant.');
         }
 
-        // Stub per handoff §4: route exists, cooperative cancel through
-        // the loop is a follow-up. The SPA's reconciliation case 5
-        // ("cancel requested, no terminal event yet") relies on the
-        // SPA holding the cancelling state until the loop appends a
-        // terminal event. For now we accept the request and return
-        // 202; no event is appended.
+        // Cooperative cancel (step-03 chunk D7, decision 4): record the
+        // request in the cross-request TurnCancellation store. The concurrently
+        // streaming ChatRespondLoop polls this on each coalesced flush, stops
+        // draining, and appends the terminal `assistant_turn_cancelled` event
+        // itself. The SPA's reconciliation case 5 ("cancel requested, no
+        // terminal event yet") holds the cancelling state until that event
+        // arrives — this endpoint only sets the signal and returns 202.
+        $this->cancellation->request(Uuid::fromString($turnId));
+
         return new JsonResponse([
             'thread_id' => $threadId,
             'turn_id' => $turnId,

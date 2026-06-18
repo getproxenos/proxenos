@@ -30,6 +30,13 @@ services:
             $platforms: !service_locator
                 test_inmemory: '@App\Tests\Support\RecordingInMemoryPlatform'
 
+    # Controllable cooperative-cancel signal (step-03 chunk D7). Replaces the
+    # cache-backed production binding so the cancel path is deterministic and
+    # credential-free. Public so the test can arm/assert it directly.
+    App\Tests\Support\ControllableTurnCancellation:
+        public: true
+    App\Ai\Chat\TurnCancellation: '@App\Tests\Support\ControllableTurnCancellation'
+
     # In-process Mercure hub (handoff §2). Replaces mercure.hub.default so
     # `make test` needs no real broker — every publish is captured in-memory
     # and asserted by the tests. Public so the test can fetch it directly.

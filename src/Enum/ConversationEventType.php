@@ -23,6 +23,7 @@ enum ConversationEventType: string
     case ASSISTANT_CONTENT_DELTA = 'assistant_content_delta';
     case ASSISTANT_TURN_COMPLETED = 'assistant_turn_completed';
     case ASSISTANT_TURN_FAILED = 'assistant_turn_failed';
+    case ASSISTANT_TURN_CANCELLED = 'assistant_turn_cancelled';
     case THREAD_ENTITY_ATTACHED = 'thread_entity_attached';
     case THREAD_ENTITY_DETACHED = 'thread_entity_detached';
     case THREAD_RENAMED = 'thread_renamed';

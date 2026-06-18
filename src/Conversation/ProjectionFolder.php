@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Conversation;
 
 use App\Conversation\Event\Payload\AssistantContentDelta;
+use App\Conversation\Event\Payload\AssistantTurnCancelled;
 use App\Conversation\Event\Payload\AssistantTurnCompleted;
 use App\Conversation\Event\Payload\AssistantTurnFailed;
 use App\Conversation\Event\Payload\ThreadRenamed;
@@ -60,6 +61,7 @@ final class ProjectionFolder
             ConversationEventType::ASSISTANT_CONTENT_DELTA => $this->foldAssistantContentDelta($event),
             ConversationEventType::ASSISTANT_TURN_COMPLETED => $this->foldAssistantTurnCompleted($event),
             ConversationEventType::ASSISTANT_TURN_FAILED => $this->foldAssistantTurnFailed($event),
+            ConversationEventType::ASSISTANT_TURN_CANCELLED => $this->foldAssistantTurnCancelled($event),
             ConversationEventType::THREAD_ENTITY_ATTACHED => $this->foldThreadEntityAttached($event),
             ConversationEventType::THREAD_ENTITY_DETACHED => $this->foldThreadEntityDetached($event),
             ConversationEventType::THREAD_RENAMED => $this->foldThreadRenamed($event),
@@ -277,6 +279,47 @@ final class ProjectionFolder
             $message = $this->messages->find($payload->messageId);
             if (null !== $message) {
                 $message->markFailed($event->getSequence(), $event->getOccurredAt());
+            }
+        }
+
+        $thread = $this->ensureThread(
+            $event->getThreadId(),
+            $event->getTenantId(),
+            null,
+            $event->getOccurredAt(),
+        );
+        $thread->recordEvent($event->getSequence(), $event->getOccurredAt());
+    }
+
+    private function foldAssistantTurnCancelled(ConversationEvent $event): void
+    {
+        $rawMessageId = $event->getPayload()['message_id'] ?? null;
+        $payload = new AssistantTurnCancelled(
+            null !== $rawMessageId ? Uuid::fromString((string) $rawMessageId) : null,
+            (string) ($event->getPayload()['finish_reason'] ?? 'cancelled'),
+            (string) ($event->getPayload()['error_summary'] ?? ''),
+        );
+
+        $turnId = $event->getTurnId();
+        if (null === $turnId) {
+            throw new \LogicException('assistant_turn_cancelled requires envelope.turn_id.');
+        }
+
+        $turn = $this->turns->find($turnId);
+        if (null === $turn) {
+            throw new \LogicException(sprintf('assistant_turn_cancelled references turn %s with no projection row.', $turnId->toRfc4122()));
+        }
+
+        $turn->markCancelled($event->getSequence(), $event->getOccurredAt());
+
+        // The assistant Message row only exists if at least one content_delta
+        // landed before the cooperative stop. A stop before any delta leaves
+        // message_id null in the payload — fold becomes a turn-only state
+        // change in that case (mirrors foldAssistantTurnFailed).
+        if (null !== $payload->messageId) {
+            $message = $this->messages->find($payload->messageId);
+            if (null !== $message) {
+                $message->markCancelled($event->getSequence(), $event->getOccurredAt());
             }
         }
 

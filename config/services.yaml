@@ -55,6 +55,11 @@ services:
                 generic.default: '@ai.platform.generic.default'
     App\Ai\ModelProfile\ModelProfileResolver: '@App\Ai\ModelProfile\ConfigModelProfileResolver'
 
+    # Cross-request cooperative cancel signal (step-03 chunk D7). Production
+    # binding is cache-backed (cache.app); CacheTurnCancellation autowires the
+    # default app pool via CacheItemPoolInterface.
+    App\Ai\Chat\TurnCancellation: '@App\Ai\Chat\CacheTurnCancellation'
+
     # Auto-titler (step-03 chunk D4). The model-profile name is operator config;
     # the rest autowires (heuristic source, lifecycle service, resolver).
     App\Conversation\Title\ThreadAutoTitler:
