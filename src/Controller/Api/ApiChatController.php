@@ -6,6 +6,7 @@ namespace App\Controller\Api;
 
 use App\Ai\Chat\ChatRespondLoop;
 use App\Ai\Chat\ChatRespondRequest;
+use App\Conversation\Title\ThreadAutoTitler;
 use App\Entity\User;
 use App\Repository\MembershipRepository;
 use App\Repository\ThreadRepository;
@@ -53,6 +54,7 @@ final class ApiChatController extends AbstractController
         private readonly ThreadRepository $threads,
         private readonly ChatRespondLoop $loop,
         private readonly CsrfTokenManagerInterface $csrf,
+        private readonly ThreadAutoTitler $autoTitler,
     ) {
     }
 
@@ -77,12 +79,26 @@ final class ApiChatController extends AbstractController
         /** @var User $user */
         $user = $this->getUser();
 
+        // Gate the auto-titler on state captured BEFORE the loop runs: a thread
+        // with no row, or a row that was never titled, is "new" for this turn.
+        // After the first submit auto-titles it, the projected title is set, so
+        // a second message sees a title and the titler is skipped — once per
+        // thread (step-03 chunk D4).
+        $isNewlyTitleableThread = null === $existing || null === $existing->getTitle();
+
         $result = $this->loop->execute(new ChatRespondRequest(
             tenantId: $membership->getTenant()->getId(),
             userId: $user->getId(),
             threadId: $threadUuid,
             userMessageText: $text,
         ));
+
+        // D4: auto-title a freshly-created thread from its first user message.
+        // Runs AFTER the loop (the loop materialized the thread + folded its
+        // events) and stays out of ChatRespondLoop so the core loop is untouched.
+        if ($isNewlyTitleableThread) {
+            $this->autoTitler->autoTitle($threadUuid, $membership->getTenant()->getId(), $text);
+        }
 
         // 202: the SPA already saw deltas via Mercure; this response
         // confirms the turn boundaries. Body is metadata, not the
