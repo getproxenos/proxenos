@@ -111,6 +111,17 @@ class Thread
         $this->title = $title;
     }
 
+    /**
+     * Soft-archive: flips the projection's status to `archived` so the active
+     * thread list (`findActiveByTenantOrderedByUpdatedAt`) stops listing it,
+     * without deleting any history (step-03 chunk D2, decision 10). The event
+     * log is untouched, so a replay reconstructs the archived state too.
+     */
+    public function markArchived(): void
+    {
+        $this->status = 'archived';
+    }
+
     public function recordEvent(int $sequence, \DateTimeImmutable $occurredAt): void
     {
         if ($sequence > $this->lastSequence) {

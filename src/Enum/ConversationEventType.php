@@ -25,4 +25,6 @@ enum ConversationEventType: string
     case ASSISTANT_TURN_FAILED = 'assistant_turn_failed';
     case THREAD_ENTITY_ATTACHED = 'thread_entity_attached';
     case THREAD_ENTITY_DETACHED = 'thread_entity_detached';
+    case THREAD_RENAMED = 'thread_renamed';
+    case THREAD_ARCHIVED = 'thread_archived';
 }

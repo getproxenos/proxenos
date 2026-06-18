@@ -7,6 +7,7 @@ namespace App\Conversation;
 use App\Conversation\Event\Payload\AssistantContentDelta;
 use App\Conversation\Event\Payload\AssistantTurnCompleted;
 use App\Conversation\Event\Payload\AssistantTurnFailed;
+use App\Conversation\Event\Payload\ThreadRenamed;
 use App\Conversation\Event\Payload\UserMessageSubmitted;
 use App\Entity\ConversationEvent;
 use App\Entity\Message;
@@ -61,6 +62,8 @@ final class ProjectionFolder
             ConversationEventType::ASSISTANT_TURN_FAILED => $this->foldAssistantTurnFailed($event),
             ConversationEventType::THREAD_ENTITY_ATTACHED => $this->foldThreadEntityAttached($event),
             ConversationEventType::THREAD_ENTITY_DETACHED => $this->foldThreadEntityDetached($event),
+            ConversationEventType::THREAD_RENAMED => $this->foldThreadRenamed($event),
+            ConversationEventType::THREAD_ARCHIVED => $this->foldThreadArchived($event),
         };
 
         $this->em->flush();
@@ -352,6 +355,42 @@ final class ProjectionFolder
         }
 
         $this->em->remove($existing);
+    }
+
+    private function foldThreadRenamed(ConversationEvent $event): void
+    {
+        $payload = new ThreadRenamed((string) $event->getPayload()['title']);
+
+        $thread = $this->ensureThread(
+            $event->getThreadId(),
+            $event->getTenantId(),
+            null,
+            $event->getOccurredAt(),
+        );
+
+        if ($event->getSequence() <= $thread->getLastSequence()) {
+            return;
+        }
+
+        $thread->setTitle($payload->title);
+        $thread->recordEvent($event->getSequence(), $event->getOccurredAt());
+    }
+
+    private function foldThreadArchived(ConversationEvent $event): void
+    {
+        $thread = $this->ensureThread(
+            $event->getThreadId(),
+            $event->getTenantId(),
+            null,
+            $event->getOccurredAt(),
+        );
+
+        if ($event->getSequence() <= $thread->getLastSequence()) {
+            return;
+        }
+
+        $thread->markArchived();
+        $thread->recordEvent($event->getSequence(), $event->getOccurredAt());
     }
 
     private function ensureThread(
