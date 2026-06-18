@@ -22,6 +22,7 @@ features:
   lds: {"enabled": true, "root": "engineering"}
   changelog: {"enabled": true}
   orchestration: {"enabled": true, "backend": "solo", "source": "plugin"}
+  solo: {"enabled": true}
 # --- initiative registry ----------------------------------------------------
 # Populated by `wip init <slug>`. `current_initiative` selects the default.
 initiatives:
