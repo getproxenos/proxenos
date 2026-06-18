@@ -352,6 +352,51 @@ describe('assistant_turn_cancelled projection (D8 / handoff §4 case 5)', () => 
   })
 })
 
+describe('foldEvent (thread_system_prompt_set, D10)', () => {
+  const setEvent = (over: Partial<ConversationEventEnvelope> & { sequence: number }) =>
+    makeEvent({
+      type: 'thread_system_prompt_set',
+      actor_type: 'user',
+      ...over,
+    })
+
+  it('projects the override onto systemPrompt (the editor loads it from here)', () => {
+    const state = foldEvent(
+      initialStoreState(),
+      setEvent({ id: 'evt-sp-1', sequence: 1, payload: { system_prompt: 'Be terse.' } }),
+    )
+    expect(state.threadsById[TENANT_THREAD_A]!.systemPrompt).toBe('Be terse.')
+  })
+
+  it('clears the override on a null payload', () => {
+    let state = foldEvent(
+      initialStoreState(),
+      setEvent({ id: 'evt-sp-1', sequence: 1, payload: { system_prompt: 'Be terse.' } }),
+    )
+    state = foldEvent(
+      state,
+      setEvent({ id: 'evt-sp-2', sequence: 2, payload: { system_prompt: null } }),
+    )
+    expect(state.threadsById[TENANT_THREAD_A]!.systemPrompt).toBeNull()
+  })
+
+  it('does not disturb message/run state (additive to the streaming path)', () => {
+    let state = foldEvents(initialStoreState(), canonicalTurn())
+    state = foldEvent(
+      state,
+      setEvent({ id: 'evt-sp-1', sequence: 5, payload: { system_prompt: 'persona' } }),
+    )
+    const thread = state.threadsById[TENANT_THREAD_A]!
+    expect(thread.systemPrompt).toBe('persona')
+    expect(thread.runStatus).toBe('completed')
+    expect(thread.messages).toHaveLength(2)
+  })
+
+  it('seeds systemPrompt null on a fresh thread', () => {
+    expect(initialThreadState(TENANT_THREAD_A).systemPrompt).toBeNull()
+  })
+})
+
 describe('initial state helpers', () => {
   it('seeds an empty thread state', () => {
     const t = initialThreadState(TENANT_THREAD_A)

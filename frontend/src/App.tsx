@@ -16,9 +16,12 @@ import {
   archiveThread,
   fetchAllEventsAfter,
   fetchBootstrap,
+  fetchMeSettings,
   fetchThreadList,
   renameThread,
   requestCancel,
+  saveMeSettings,
+  saveThreadSystemPrompt,
   submitMessage,
   subscribeToTopic,
 } from './store/transport'
@@ -26,6 +29,7 @@ import type { BootstrapDescriptor } from './store/transport'
 import { mapThreadListResponse, removeThread } from './store/threadList'
 import type { ThreadListItem } from './store/threadList'
 import { EmptyState } from './shell/EmptyState'
+import { SystemPromptDialog } from './shell/SystemPromptDialog'
 import { ThreadRoute } from './shell/ThreadRoute'
 import { ThreadSidebar } from './shell/ThreadSidebar'
 import { ThreadSurface } from './shell/ThreadSurface'
@@ -60,6 +64,9 @@ export function App() {
   const [boot, setBoot] = useState<BootstrapDescriptor | null>(null)
   const [bootstrapError, setBootstrapError] = useState<string | null>(null)
   const [threads, setThreads] = useState<ThreadListItem[]>([])
+  // Which system-prompt editor is open (D10): the global default (off the
+  // TopBar user menu) or the focused thread's override (off the active thread).
+  const [promptDialog, setPromptDialog] = useState<'global' | 'thread' | null>(null)
   const csrfTokenRef = useRef<string | null>(null)
   const hubUrlRef = useRef<string | null>(null)
   const subscriptionsRef = useRef(new Map<string, () => void>())
@@ -320,6 +327,38 @@ export function App() {
     }
   }, [currentThread?.activeTurnId, storeState.currentThreadId])
 
+  // System-prompt editors (D10). Callbacks are memoized so the dialog's
+  // load-on-open effect fires once — an unrelated store update (e.g. a live
+  // Mercure delta re-rendering the shell) must not re-load and clobber an
+  // in-progress edit. The global default loads from `GET /api/me/settings`;
+  // the per-thread override has no GET endpoint, so it loads the folded value
+  // off the focused thread (`ThreadState.systemPrompt`).
+  const loadGlobalPrompt = useCallback(
+    () => fetchMeSettings().then((s) => s.system_prompt_default),
+    [],
+  )
+  const saveGlobalPrompt = useCallback((value: string | null): Promise<void> => {
+    const csrf = csrfTokenRef.current
+    if (!csrf) throw new Error('bootstrap incomplete: no CSRF token')
+    return saveMeSettings(value, csrf)
+  }, [])
+
+  const currentSystemPrompt = currentThread?.systemPrompt ?? null
+  const loadThreadPrompt = useCallback(
+    () => Promise.resolve(currentSystemPrompt),
+    [currentSystemPrompt],
+  )
+  const saveThreadPrompt = useCallback(
+    (value: string | null): Promise<void> => {
+      const csrf = csrfTokenRef.current
+      const threadId = storeState.currentThreadId
+      if (!csrf) throw new Error('bootstrap incomplete: no CSRF token')
+      if (!threadId) throw new Error('no current thread')
+      return saveThreadSystemPrompt(threadId, value, csrf)
+    },
+    [storeState.currentThreadId],
+  )
+
   const runtime = useExternalStoreRuntime({
     messages,
     isRunning: runStatus === 'streaming' || runStatus === 'cancelling',
@@ -335,6 +374,7 @@ export function App() {
           email={boot?.user.email ?? null}
           tenantName={boot?.tenant.name ?? null}
           bootstrapError={bootstrapError}
+          onOpenSettings={() => setPromptDialog('global')}
         />
         <div className="app-body">
           <ThreadSidebar
@@ -350,7 +390,10 @@ export function App() {
                 path="threads/:id"
                 element={
                   <ThreadRoute onSelect={selectThread}>
-                    <ThreadSurface view={deriveThreadView(currentThread)} />
+                    <ThreadSurface
+                      view={deriveThreadView(currentThread)}
+                      onEditSystemPrompt={() => setPromptDialog('thread')}
+                    />
                   </ThreadRoute>
                 }
               />
@@ -358,6 +401,25 @@ export function App() {
           </main>
         </div>
       </div>
+
+      {promptDialog === 'global' && (
+        <SystemPromptDialog
+          title="Default system prompt"
+          description="Applied to every thread unless that thread sets its own override. Leave blank to clear."
+          load={loadGlobalPrompt}
+          save={saveGlobalPrompt}
+          onClose={() => setPromptDialog(null)}
+        />
+      )}
+      {promptDialog === 'thread' && storeState.currentThreadId && (
+        <SystemPromptDialog
+          title="Thread system prompt"
+          description="Overrides your default for this thread only. Leave blank to clear and fall back to the default."
+          load={loadThreadPrompt}
+          save={saveThreadPrompt}
+          onClose={() => setPromptDialog(null)}
+        />
+      )}
     </AssistantRuntimeProvider>
   )
 }

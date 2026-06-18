@@ -14,6 +14,7 @@ export type ConversationEventType =
   | 'assistant_turn_completed'
   | 'assistant_turn_failed'
   | 'assistant_turn_cancelled'
+  | 'thread_system_prompt_set'
 
 export type ActorType = 'user' | 'assistant' | 'connector' | 'system' | 'extension'
 
@@ -76,6 +77,15 @@ export interface ThreadState {
    * spread the prior thread), so live deltas never reset it.
    */
   hydrated: boolean
+  /**
+   * The thread's system-prompt override, folded from `thread_system_prompt_set`
+   * (D9/D10). `null` means no override — the effective prompt falls back to the
+   * user's global default. There is no GET endpoint for this value (backend is
+   * event-sourced), so the per-thread override editor reads it from here: the
+   * cursor replay + live Mercure stream carry the set events, the fold projects
+   * the latest, and the editor loads the current value off the focused thread.
+   */
+  systemPrompt: string | null
 }
 
 /**

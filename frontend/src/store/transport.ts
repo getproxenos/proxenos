@@ -37,6 +37,11 @@ export interface ThreadListItemResponse {
   updated_at: string
 }
 
+/** GET/PUT /api/me/settings — per-user settings (D9). v0 holds one field. */
+export interface MeSettingsResponse {
+  system_prompt_default: string | null
+}
+
 /** GET /api/me/bootstrap — identity, CSRF, Mercure descriptor. */
 export const fetchBootstrap = async (): Promise<BootstrapDescriptor> => {
   const res = await fetch('/api/me/bootstrap', { credentials: 'same-origin' })
@@ -140,6 +145,59 @@ export const requestCancel = async (
     headers: { 'X-CSRF-Token': csrfToken },
   })
   if (!res.ok) throw new Error(`cancel failed: ${res.status}`)
+}
+
+/**
+ * GET /api/me/settings — the caller's global system-prompt default (D9).
+ * `system_prompt_default` is null when no default is set.
+ */
+export const fetchMeSettings = async (): Promise<MeSettingsResponse> => {
+  const res = await fetch('/api/me/settings', { credentials: 'same-origin' })
+  if (!res.ok) throw new Error(`settings fetch failed: ${res.status}`)
+  return (await res.json()) as MeSettingsResponse
+}
+
+/**
+ * PUT /api/me/settings — set the global system-prompt default (D9 → 200).
+ * A null or blank value clears the default; the backend normalizes blank→null
+ * at the boundary, and the caller passes null for an honest clear.
+ */
+export const saveMeSettings = async (
+  systemPromptDefault: string | null,
+  csrfToken: string,
+): Promise<void> => {
+  const res = await fetch('/api/me/settings', {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': csrfToken,
+    },
+    body: JSON.stringify({ system_prompt_default: systemPromptDefault }),
+  })
+  if (!res.ok) throw new Error(`settings save failed: ${res.status}`)
+}
+
+/**
+ * PUT /api/threads/{id}/system-prompt — set the per-thread override (D9 → 202).
+ * A null value clears the override (effective prompt falls back to the global
+ * default); the backend also normalizes blank→null.
+ */
+export const saveThreadSystemPrompt = async (
+  threadId: string,
+  systemPrompt: string | null,
+  csrfToken: string,
+): Promise<void> => {
+  const res = await fetch(`/api/threads/${threadId}/system-prompt`, {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': csrfToken,
+    },
+    body: JSON.stringify({ system_prompt: systemPrompt }),
+  })
+  if (!res.ok) throw new Error(`system prompt save failed: ${res.status}`)
 }
 
 /**

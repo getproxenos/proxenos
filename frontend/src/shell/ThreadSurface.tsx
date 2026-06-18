@@ -33,11 +33,25 @@ import type { ThreadView } from '../store/threadView'
  * It reads message data from the host-owned `ExternalStoreRuntime` provided by
  * the shell; the `view` carries the reducer status the runtime doesn't expose.
  */
-export function ThreadSurface({ view }: { view: ThreadView }) {
+export function ThreadSurface({
+  view,
+  onEditSystemPrompt,
+}: {
+  view: ThreadView
+  /** Open the per-thread system-prompt override editor (D10). Omit to hide. */
+  onEditSystemPrompt?: () => void
+}) {
   const viewportRef = useRef<HTMLDivElement>(null)
 
   return (
     <ThreadPrimitive.Root className="thread">
+      {onEditSystemPrompt && (
+        <div className="thread-toolbar">
+          <button type="button" className="thread-systemprompt" onClick={onEditSystemPrompt}>
+            System prompt
+          </button>
+        </div>
+      )}
       <div className="thread-viewport-wrap">
         <ThreadPrimitive.Viewport ref={viewportRef}>
           {view.status === 'ready' ? (

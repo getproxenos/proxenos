@@ -50,6 +50,92 @@ body {
     opacity: 0.9;
 }
 
+.app-settings,
+.thread-systemprompt {
+    padding: 0.35rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.thread-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0.5rem 0.75rem 0;
+}
+
+/* --- System-prompt editor modal (D10) --- */
+.app-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, black 45%, transparent);
+    z-index: 50;
+}
+
+.app-modal {
+    width: min(40rem, calc(100vw - 2rem));
+    max-height: calc(100vh - 4rem);
+    overflow: auto;
+    padding: 1.25rem;
+    border-radius: 0.75rem;
+    background: Canvas;
+    color: CanvasText;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.app-modal-title {
+    margin: 0;
+    font-size: 1.1rem;
+}
+
+.app-modal-description {
+    margin: 0;
+    opacity: 0.75;
+    font-size: 0.9rem;
+}
+
+.app-modal-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    font: inherit;
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    background: transparent;
+    color: inherit;
+}
+
+.app-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+.app-modal-actions button {
+    padding: 0.35rem 0.9rem;
+    border-radius: 0.5rem;
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.app-modal-actions button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
 .app-signout {
     margin: 0;
 }

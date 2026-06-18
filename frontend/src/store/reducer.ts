@@ -46,6 +46,7 @@ export const initialThreadState = (threadId: string): ThreadState => ({
   activeTurnId: null,
   errorSummary: null,
   hydrated: false,
+  systemPrompt: null,
 })
 
 export const initialStoreState = (): ConversationStoreState => ({
@@ -130,6 +131,8 @@ const foldIntoThread = (thread: ThreadState, event: ConversationEventEnvelope): 
       return applyAssistantTurnFailed(thread, event, seenEventIds, lastSeenSequence)
     case 'assistant_turn_cancelled':
       return applyAssistantTurnCancelled(thread, event, seenEventIds, lastSeenSequence)
+    case 'thread_system_prompt_set':
+      return applyThreadSystemPromptSet(thread, event, seenEventIds, lastSeenSequence)
   }
 }
 
@@ -270,6 +273,28 @@ const applyAssistantTurnCancelled = (
     messages,
     runStatus: 'cancelled',
     activeTurnId: null,
+  }
+}
+
+/**
+ * Per-thread system-prompt override (D9 `thread_system_prompt_set`, D10). The
+ * payload key is `system_prompt` (wire snake_case); a `null` value clears the
+ * override. Purely a projection of the latest set event onto `systemPrompt` —
+ * it touches no message/run state, so it never disturbs the streaming or
+ * reconciliation paths. Idempotent via `foldEvent`'s id/sequence guards.
+ */
+const applyThreadSystemPromptSet = (
+  thread: ThreadState,
+  event: ConversationEventEnvelope,
+  seenEventIds: Set<string>,
+  lastSeenSequence: number,
+): ThreadState => {
+  const raw = event.payload.system_prompt
+  return {
+    ...thread,
+    seenEventIds,
+    lastSeenSequence,
+    systemPrompt: typeof raw === 'string' ? raw : null,
   }
 }
 
