@@ -57,6 +57,12 @@ jobs:
       - name: Run migrations against throwaway Postgres
         run: php bin/console doctrine:migrations:migrate --no-interaction
 
+      - name: Stub SPA build artifact (SpaControllerTest asserts the path; the
+          real Vite build runs in the parallel `frontend` job)
+        run: |
+          mkdir -p public/app
+          printf '<!doctype html><html><body>stub</body></html>\n' > public/app/index.html
+
       - name: PHPUnit
         run: vendor/bin/phpunit
 
