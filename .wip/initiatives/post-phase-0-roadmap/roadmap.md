@@ -9,9 +9,14 @@ Started: 2026-06-16.
 
 ---
 
-## Round 1 — _title_
+## Round 1 — product spine (model profile + entity spine + SPA) ✅ shipped 2026-06-19
 
-_One-sentence shipping criterion for the round._
+The product spine is daily-driveable end to end: F1's model-profile taxonomy
+is the operator-level surface every later feature consumes (step-01); a
+typed `core.document` rides a reference envelope through entity-aware prompt
+assembly and the budget planner with no escape hatch (step-02); the SPA is
+the sole chat surface with stop / system prompt / persistent thread list,
+the Twig stopgap is retired, and four CI gates stay green (step-03).
 
 - **step-01 — F1 — Model-profile / task-intent taxonomy** — Shared prerequisite for both parallel lanes (A and D). Name the model-selection layer the spine, the operation registry, and every memory/truth feature will consume — **operator-level only** (ADR-008: no user-facing picker). Mostly a **design + minimal config refactor**: produce the ADR and seed `proxenos.model_profiles` with the intent taxonomy by restructuring the two profiles already in `config/packages/proxenos.yaml` (`chat.frontier`, `chat.frontier_alt`). **Resolved framings (encode, don't relitigate):** two layers already present — profile → `{platform, model, options}` (built; ADR-023) and feature → profile (lightweight env override, e.g. `PROXENOS_{FEATURE}_MODEL_PROFILE`). Two naming dimensions composed by convention: *intent* (`proxenos.task.{chat, reason, extract, summarize, embed.text}`) and *quality/latency variant* (`.fast` / `.deep` / `.frontier`). v0 = naming convention over one flat map; the resolver stays a dumb `name → profile` lookup. Bespoke profiles are first-class peers. Keep `platform:` (symfony/ai's term). `task.embed.text` is a different capability kind (no streaming, carries an embedding dimension) — the profile schema likely needs a `kind` marker. **Open sub-decisions to settle:** canonical intent list (`code` in v0 or reserved?); declare-all vs declare-as-needed in config (lean: ADR holds canonical list, config defines only profiles consumed now); per-profile schema fields; where feature→profile bindings live (config + env now, graduate into ADR-014 registry later); confirm quality variants stay naming-convention-only for v0. **Scope:** an ADR ("model-profile / task-intent taxonomy") recording the two layers, two dimensions, flat-map convention, bespoke-peer rule, `platform` term, embeddings `kind`, and the feature→profile binding pattern (cross-reference / lightly amend ADR-008 / ADR-014 / ADR-023); seed the taxonomy in `proxenos.model_profiles` (e.g. `chat.frontier` → `proxenos.task.chat`; keep the generic/OpenRouter profile as the bridge example); update the one caller default (`ChatRespondRequest::modelProfile`) and the test rebinding in `config/services_test.yaml`; document the feature→profile env pattern with a worked example. **Hard exclusions:** no user-facing picker (ADR-008); no composed (intent × quality) resolver; no `xes.model.*` indirection; no Operation Registry build (only the binding shape — registry is F2); no new providers/bridges beyond `anthropic` and `generic.default`. **Definition of done:** ADR recorded; profiles restructured into intent taxonomy with default caller + `services_test.yaml` rebinding updated; `make test` + `make lint` green; feature→profile env convention documented with a worked example; canonical intent list + open sub-decisions resolved in the ADR. Inputs / full handoff: [handoff-model-profile-taxonomy.md](../../../current-handoffs/handoff-model-profile-taxonomy.md). ✅ shipped 2026-06-16
 <!-- wip-amend: 6f179faae995e2f594913aaedd710b98c6de11625e4bf4798e7808c3cda9b65b -->
@@ -42,6 +47,59 @@ stay globally sequential — the lane is a grouping, not a numbering namespace.
 
 
 ---
+
+
+# Round 2 — Operational hardening
+
+## Round 2 — Operational hardening
+
+The Round 1 spine is daily-driveable on a single PHP worker; this round
+takes the load-bearing operational seams off the dev-friendly stand-ins and
+onto stores that survive multi-worker prod traffic. First step swaps the
+cancellation-cache pool so cooperative cancel works across PHP processes
+where the cancel request and the streaming turn can land on different
+workers.
+
+### step-04 — Cancellation cache — Redis adapter for multi-worker prod
+
+D7 (`5db671b`) wired `CacheTurnCancellation` over PSR-6 `cache.app`,
+which `config/packages/cache.yaml` currently binds to the filesystem
+pool. That's correct for dev / single-process; a multi-worker prod
+deploy where the cancel request and the streaming turn land on
+different PHP processes needs a shared adapter (Redis). The seam is
+already in the right place — `CacheTurnCancellation` consumes
+`Psr\Cache\CacheItemPoolInterface`, so the swap is config + compose,
+not code.
+
+**Scope:** add a Redis service to compose for dev (and a documented
+prod env variable for the DSN); swap `framework.cache.pools.cache.app`
+(or the `framework.cache.app` shorthand) from
+`cache.adapter.filesystem` to a Redis adapter, behind an env-driven
+DSN with a filesystem fallback for environments that still want
+disk-only (CI included); update `config/packages/cache.yaml`'s
+inline comment that currently flags this as "promote when prod
+needs it"; verify the rebuild-reproduces-cancelled-state invariant
+holds end-to-end against the swapped pool; add a smoke test that
+exercises cancel across a fresh-EM read so a second worker would
+see the flag.
+
+**Hard exclusions:** no other cache pools migrated (only `cache.app`);
+no session-store migration (separate concern, deferred); no Mercure
+transport change; no Symfony Messenger transport migration.
+
+**Definition of done:** Redis adapter wired in dev + documented for
+prod; `cache.yaml` updated and the "promote to Redis when prod needs
+it" caveat removed (since it's done); `CacheTurnCancellation` source
+file unchanged (proves the abstraction holds); `make test` +
+`make lint` green; existing `ChatRespondLoopCancellationTest` still
+passes; cross-process cancel verified manually with a multi-worker
+dev configuration (or via an isolated test that exercises the
+adapter directly).
+
+**Depends on:** step-03 chunk D7 (which set the cooperative-cancel
+seam). No code change to `CacheTurnCancellation` itself.
+<!-- wip-amend: 7f98ea2a5657f1c0abfd0e399540510ddc41dd77942cc946180b5f5363313b3d -->
+
 
 ## Deferred (decided-not-now)
 
