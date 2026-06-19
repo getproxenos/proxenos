@@ -2,11 +2,13 @@
 # compose.dev.yaml — dev overlay
 # =============================================================================
 # Usage: docker compose -f compose.common.yaml -f compose.dev.yaml up
-# (or `make up` — the Makefile wires these together and exports UID/GID).
+# (or `make up`).
 #
-# Bind-mounts the source tree into all PHP services so edits are live. PUID/PGID
-# ask serversideup to align www-data with the host user for bind-mount writes
-# (confirm exact var names against serversideup docs — harmless if unsupported).
+# Bind-mounts the source tree into all PHP services so edits are live. Host
+# UID/GID alignment for bind-mount writes is baked into the dev image at build
+# time (USER_ID/GROUP_ID args via `make dev` -> docker-bake.hcl -> the Dockerfile
+# `dev` stage's docker-php-serversideup-set-id), so no runtime PUID/PGID env is
+# needed here.
 
 x-dev-php: &dev-php
   pull_policy: never
@@ -18,8 +20,6 @@ x-dev-php: &dev-php
     # Dev-only shared cache.app DSN. Prod must provide a managed Redis DSN via
     # compose.prod.yaml instead of inheriting this local service hostname.
     REDIS_URL: redis://redis:6379
-    PUID: "${UID:-1000}"
-    PGID: "${GID:-1000}"
 
 services:
   app:
@@ -30,11 +30,6 @@ services:
     <<: *dev-php
   reactor:
     <<: *dev-php
-  db:
-    # Expose Postgres on the host for local inspection / migrations from the Nix
-    # shell. 5433 avoids colliding with a local 5432.
-    ports:
-      - "5433:5432"
   redis:
     # Shared store for the `cache.app` pool (cooperative turn-cancellation +
     # Doctrine result cache). Mirrors prod so cross-worker cancel can be

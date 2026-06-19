@@ -3,12 +3,8 @@
 # =============================================================================
 MAKEFLAGS += --no-print-directory
 
-# Host UID/GID exported so compose can pass them to serversideup (PUID/PGID) for
-# correct bind-mount ownership in dev.
-UID := $(shell id -u)
-GID := $(shell id -g)
-export UID
-export GID
+USER_ID := $(shell id -u)
+GROUP_ID := $(shell id -g)
 
 COMPOSE := docker compose -f compose.common.yaml -f compose.dev.yaml
 
@@ -28,6 +24,8 @@ install: ## Install PHP dependencies (run in the nix shell)
 
 .PHONY: dev
 dev: ## Build local dev images (app + worker)
+	USER_ID=$(USER_ID) \
+	GROUP_ID=$(GROUP_ID) \
 	docker buildx bake dev --load
 
 .PHONY: build

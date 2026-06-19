@@ -67,8 +67,6 @@ services:
           file_server
         }
       SSL_MODE: "${SSL_MODE:-off}"
-    ports:
-      - "8080:8080"
     depends_on:
       db:
         condition: service_healthy

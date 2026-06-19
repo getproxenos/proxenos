@@ -18,3 +18,4 @@ ignore: |
   /var/
   /.direnv/
   /frontend/
+  /.xcind/

@@ -21,6 +21,8 @@ services:
     environment:
       <<: *prod-env
       SSL_MODE: "${SSL_MODE:-full}"
+    ports:
+      - "8080:8080"
   worker:
     image: "${WORKER_IMAGE:?set WORKER_IMAGE to the published GHCR worker image}"
     environment:

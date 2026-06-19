@@ -15,6 +15,15 @@
 #   make dev                          # build local dev images
 #   docker buildx bake prod           # build prod images (no push)
 #   docker buildx bake app-prod --push
+#
+# USER_ID / GROUP_ID:
+#   Default to null. When null Bake omits the arg and the Dockerfile leaves
+#   www-data's native UID/GID. `make dev` captures the host's UID/GID via
+#   $(shell id -u/-g) and passes them through so bind-mounted files are
+#   owned correctly.
+#
+#   Do NOT hardcode values here: HCL values override Compose values for the
+#   same key, so a hardcoded default cannot be overridden from Compose.
 
 # GitHub owner / GHCR namespace (lowercase — Docker tag rule). Change this if you
 # publish under a different org. CI overrides REGISTRY/TAG from the workflow
@@ -30,6 +39,17 @@ variable "PHP_VERSION" {
 variable "TAG" {
   default = "dev"
 }
+
+variable "USER_ID" {
+  default     = null
+  description = "Host UID for dev container permission fix. Set via make dev."
+}
+
+variable "GROUP_ID" {
+  default     = null
+  description = "Host GID for dev container permission fix. Set via make dev."
+}
+
 
 function "base_image" {
   params = [variant]
@@ -63,14 +83,22 @@ target "worker-prod" {
 target "app-dev" {
   inherits = ["_common"]
   target   = "dev"
-  args     = { BASE_IMAGE = base_image("frankenphp") }
+  args     = {
+    BASE_IMAGE = base_image("frankenphp")
+    USER_ID    = USER_ID
+    GROUP_ID   = GROUP_ID
+  }
   tags     = ["proxenos/app:dev"]
 }
 
 target "worker-dev" {
   inherits = ["_common"]
   target   = "dev"
-  args     = { BASE_IMAGE = base_image("cli") }
+  args     = {
+    BASE_IMAGE = base_image("cli")
+    USER_ID    = USER_ID
+    GROUP_ID   = GROUP_ID
+  }
   tags     = ["proxenos/worker:dev"]
 }
 
