@@ -268,10 +268,20 @@ body {
 .app-main {
     flex: 1;
     min-width: 0;
+    /*
+     * min-height: 0 lets the inner .thread + ThreadPrimitive.Viewport actually
+     * bound their height to the layout — without it the default flex
+     * min-height: auto lets the viewport grow with its message content, the
+     * Viewport's own scroll never engages, and assistant-ui's mid-stream
+     * autoscroll no-ops (it targets the Viewport, not .app-main). The page-level
+     * scroll then leaves the composer/Stop button below the fold during stream.
+     * Removed the prior overflow-y: auto fallback: the Viewport is the sole
+     * scroll container by design.
+     */
+    min-height: 0;
     display: flex;
     flex-direction: column;
     padding: 1rem;
-    overflow-y: auto;
 }
 
 .app-empty {
@@ -285,6 +295,9 @@ body {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+    /* Pairs with .app-main above so .thread-viewport-wrap (which already has
+     * min-height: 0) can actually constrain the assistant-ui Viewport. */
+    min-height: 0;
 }
 
 .thread-empty {
