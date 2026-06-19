@@ -53,7 +53,7 @@ export function ThreadSurface({
         </div>
       )}
       <div className="thread-viewport-wrap">
-        <ThreadPrimitive.Viewport ref={viewportRef}>
+        <ThreadPrimitive.Viewport ref={viewportRef} className="thread-viewport">
           {view.status === 'ready' ? (
             <>
               <ThreadPrimitive.Messages

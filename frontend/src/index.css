@@ -368,6 +368,21 @@ body {
     flex-direction: column;
 }
 
+/*
+ * assistant-ui's <ThreadPrimitive.Viewport> renders a bare <div> with no
+ * styles. Its built-in autoScroll calls scrollTo on this element, which is a
+ * no-op unless we give it overflow + a bounded height. flex: 1 + min-height: 0
+ * lets it fill the wrap; overflow-y: auto makes the Viewport (rather than any
+ * ancestor) be the scroll container, so autoScroll's per-token scroll, the
+ * initial scrollToBottomOnInitialize, and the JumpToLatest button's scroll
+ * geometry all act on the same element.
+ */
+.thread-viewport {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
 .jump-to-latest {
     position: absolute;
     bottom: 0.75rem;
