@@ -75,6 +75,109 @@ final class ApiThreadControllerTest extends WebTestCase
         $this->appender = $container->get(EventAppender::class);
     }
 
+    public function testCreateReturns201AndPersistsEmptyThread(): void
+    {
+        $threadId = Uuid::v7();
+
+        $this->loginAs('a@example.com');
+        $csrf = $this->bootstrapCsrfToken();
+
+        $this->client->request(
+            'PUT',
+            '/api/threads/'.$threadId->toRfc4122(),
+            server: ['HTTP_X_CSRF_TOKEN' => $csrf],
+        );
+
+        self::assertSame(201, $this->client->getResponse()->getStatusCode());
+        $body = json_decode((string) $this->client->getResponse()->getContent(), true, flags: \JSON_THROW_ON_ERROR);
+        self::assertSame('thread_created', $body['status']);
+
+        // The empty row is in the projection — list it back.
+        $this->client->request('GET', '/api/threads');
+        $list = json_decode((string) $this->client->getResponse()->getContent(), true, flags: \JSON_THROW_ON_ERROR);
+        self::assertCount(1, $list);
+        self::assertSame($threadId->toRfc4122(), $list[0]['id']);
+        self::assertNull($list[0]['title']);
+        self::assertSame('active', $list[0]['status']);
+    }
+
+    public function testCreateIsIdempotentOnSameTenant(): void
+    {
+        $threadId = Uuid::v7();
+
+        $this->loginAs('a@example.com');
+        $csrf = $this->bootstrapCsrfToken();
+
+        $this->client->request(
+            'PUT',
+            '/api/threads/'.$threadId->toRfc4122(),
+            server: ['HTTP_X_CSRF_TOKEN' => $csrf],
+        );
+        self::assertSame(201, $this->client->getResponse()->getStatusCode());
+
+        // Second PUT must not error or duplicate; it acknowledges existence.
+        $this->client->request(
+            'PUT',
+            '/api/threads/'.$threadId->toRfc4122(),
+            server: ['HTTP_X_CSRF_TOKEN' => $csrf],
+        );
+        self::assertSame(200, $this->client->getResponse()->getStatusCode());
+        $body = json_decode((string) $this->client->getResponse()->getContent(), true, flags: \JSON_THROW_ON_ERROR);
+        self::assertSame('thread_exists', $body['status']);
+    }
+
+    public function testCreateOnForeignTenantsThreadIs404(): void
+    {
+        // Thread already exists under tenant B; user A must not be able to
+        // "claim" the same UUID and the response must not confirm B's row.
+        $threadId = $this->seedThread($this->tenantB, $this->userB);
+
+        $this->loginAs('a@example.com');
+        $csrf = $this->bootstrapCsrfToken();
+
+        $this->client->request(
+            'PUT',
+            '/api/threads/'.$threadId->toRfc4122(),
+            server: ['HTTP_X_CSRF_TOKEN' => $csrf],
+        );
+
+        self::assertSame(404, $this->client->getResponse()->getStatusCode());
+    }
+
+    public function testCreateAllowsSubmittingTheFirstMessage(): void
+    {
+        // The full first-message flow: pre-create the empty thread, then
+        // append user_message_submitted via the appender (the same path the
+        // streaming submit takes). The fold's ensureThread short-circuits to
+        // the already-created row, the message attaches, and the projection
+        // ends up consistent: one user message, position 1.
+        $threadId = Uuid::v7();
+
+        $this->loginAs('a@example.com');
+        $csrf = $this->bootstrapCsrfToken();
+
+        $this->client->request(
+            'PUT',
+            '/api/threads/'.$threadId->toRfc4122(),
+            server: ['HTTP_X_CSRF_TOKEN' => $csrf],
+        );
+        self::assertSame(201, $this->client->getResponse()->getStatusCode());
+
+        $this->appender->append(new EventEnvelope(
+            tenantId: $this->tenantA->getId(),
+            threadId: $threadId,
+            turnId: null,
+            actorType: ActorType::USER,
+            actorId: $this->userA->getId()->toRfc4122(),
+            payload: new UserMessageSubmitted(Uuid::v7(), 'first message'),
+        ));
+
+        $this->client->request('GET', '/api/threads');
+        $list = json_decode((string) $this->client->getResponse()->getContent(), true, flags: \JSON_THROW_ON_ERROR);
+        self::assertCount(1, $list);
+        self::assertSame($threadId->toRfc4122(), $list[0]['id']);
+    }
+
     public function testListReturnsActiveThreadsForCallerTenant(): void
     {
         $threadId = $this->seedThread($this->tenantA, $this->userA);

@@ -10,6 +10,8 @@ use App\Entity\Thread;
 use App\Entity\User;
 use App\Repository\MembershipRepository;
 use App\Repository\ThreadRepository;
+use Doctrine\ORM\EntityManagerInterface;
+use Psr\Clock\ClockInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -27,6 +29,22 @@ use Symfony\Component\Uid\Uuid;
  *   -> 200 [{ id, title, status, updated_at }] — the caller tenant's ACTIVE
  *      threads, most recently active first. Archived threads are soft-hidden
  *      (decision 10); their history stays in the event log.
+ *
+ *   PUT /api/threads/{threadId}
+ *     header: X-CSRF-Token
+ *   -> 201 {"status": "thread_created"} on creation, 200 {"status":
+ *      "thread_exists"} when the row was already there (idempotent). A
+ *      cross-tenant attempt returns 404 — the uniform "not found" never
+ *      confirms a foreign thread's existence. The empty thread row is the
+ *      precondition for live-streaming the very first message: it lets the
+ *      SPA re-bootstrap (and pick up a per-thread Mercure subscription JWT)
+ *      BEFORE POSTing the user message, so the user_message_submitted +
+ *      assistant deltas arrive live instead of waiting for the full stream
+ *      to end and replaying via cursor. No event is appended — thread
+ *      existence is projection state; the lazy-create in
+ *      ProjectionFolder::ensureThread (which all thread-touching folds use
+ *      defensively) makes the first user_message_submitted a no-op for the
+ *      thread row that already exists.
  *
  *   POST /api/threads/{threadId}/rename
  *     body: {"title": "..."}   header: X-CSRF-Token
@@ -59,6 +77,8 @@ final class ApiThreadController extends AbstractController
         private readonly ThreadRepository $threads,
         private readonly ThreadLifecycleService $lifecycle,
         private readonly CsrfTokenManagerInterface $csrf,
+        private readonly EntityManagerInterface $em,
+        private readonly ClockInterface $clock,
     ) {
     }
 
@@ -78,6 +98,51 @@ final class ApiThreadController extends AbstractController
         );
 
         return new JsonResponse($out);
+    }
+
+    #[Route('/{threadId}', name: 'create', methods: ['PUT'], requirements: ['threadId' => '[0-9a-f-]{36}'])]
+    public function create(string $threadId, Request $request): JsonResponse
+    {
+        $this->validateCsrf($request);
+        $membership = $this->resolveMembershipOrAbort();
+
+        // The route regex already constrains the UUID shape; Uuid::fromString
+        // would still throw on a malformed input, so the call is safe here.
+        $threadUuid = Uuid::fromString($threadId);
+
+        $existing = $this->threads->find($threadUuid);
+        if (null !== $existing) {
+            // Cross-tenant attempt: uniform 404 so the endpoint never confirms
+            // a foreign thread's existence (mirrors ApiChatController::cancel
+            // and the resolve-or-abort pattern used elsewhere in this class).
+            if (!$existing->getTenantId()->equals($membership->getTenant()->getId())) {
+                throw $this->createNotFoundException('Thread not found.');
+            }
+
+            return new JsonResponse(['status' => 'thread_exists'], Response::HTTP_OK);
+        }
+
+        /** @var User $user */
+        $user = $this->getUser();
+
+        // Direct row creation rather than emitting a `thread_created` event:
+        // the existing fold-level lazy-create (ProjectionFolder::ensureThread)
+        // already tolerates a thread row appearing without an originating
+        // event, so the first user_message_submitted fold for this thread
+        // becomes a no-op for the row itself and proceeds to append the user
+        // message normally. Replay-from-events still rebuilds correctly: with
+        // no events for an empty thread, the row simply isn't recreated —
+        // matching its lack of content.
+        $thread = new Thread(
+            $threadUuid,
+            $membership->getTenant()->getId(),
+            $user->getId(),
+            $this->clock->now(),
+        );
+        $this->em->persist($thread);
+        $this->em->flush();
+
+        return new JsonResponse(['status' => 'thread_created'], Response::HTTP_CREATED);
     }
 
     #[Route('/{threadId}/rename', name: 'rename', methods: ['POST'], requirements: ['threadId' => '[0-9a-f-]{36}'])]
