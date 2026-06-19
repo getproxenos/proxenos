@@ -5,28 +5,31 @@
 #
 # The deploy environment (Coolify secrets / real env) must provide: APP_IMAGE +
 # WORKER_IMAGE (published GHCR refs), APP_SECRET, a strong MERCURE_JWT_SECRET,
-# DATABASE_URL (or POSTGRES_* for the bundled db), and the LLM_* vars. Those flow
-# through the compose.common `x-app-env` passthroughs.
+# DATABASE_URL (or POSTGRES_* for the bundled db), REDIS_URL (managed Redis DSN
+# for the shared cache.app pool — overrides the dev `redis://redis:6379`
+# default; backs cross-worker turn-cancellation, step-04), and the LLM_* vars.
+# Those flow through the compose.common `x-app-env` passthroughs.
+
+x-prod-env: &prod-env
+  APP_ENV: prod
+  APP_SECRET: "${APP_SECRET:?set APP_SECRET}"
+  REDIS_URL: "${REDIS_URL:?set REDIS_URL to managed Redis DSN}"
 
 services:
   app:
     image: "${APP_IMAGE:?set APP_IMAGE to the published GHCR app image}"
     environment:
-      APP_ENV: prod
-      APP_SECRET: "${APP_SECRET:?set APP_SECRET}"
+      <<: *prod-env
       SSL_MODE: "${SSL_MODE:-full}"
   worker:
     image: "${WORKER_IMAGE:?set WORKER_IMAGE to the published GHCR worker image}"
     environment:
-      APP_ENV: prod
-      APP_SECRET: "${APP_SECRET:?set APP_SECRET}"
+      <<: *prod-env
   scheduler:
     image: "${WORKER_IMAGE:?set WORKER_IMAGE to the published GHCR worker image}"
     environment:
-      APP_ENV: prod
-      APP_SECRET: "${APP_SECRET:?set APP_SECRET}"
+      <<: *prod-env
   reactor:
     image: "${WORKER_IMAGE:?set WORKER_IMAGE to the published GHCR worker image}"
     environment:
-      APP_ENV: prod
-      APP_SECRET: "${APP_SECRET:?set APP_SECRET}"
+      <<: *prod-env

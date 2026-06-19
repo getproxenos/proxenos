@@ -15,6 +15,9 @@ x-dev-php: &dev-php
   environment:
     APP_ENV: dev
     APP_DEBUG: "1"
+    # Dev-only shared cache.app DSN. Prod must provide a managed Redis DSN via
+    # compose.prod.yaml instead of inheriting this local service hostname.
+    REDIS_URL: redis://redis:6379
     PUID: "${UID:-1000}"
     PGID: "${GID:-1000}"
 
@@ -32,3 +35,15 @@ services:
     # shell. 5433 avoids colliding with a local 5432.
     ports:
       - "5433:5432"
+  redis:
+    # Shared store for the `cache.app` pool (cooperative turn-cancellation +
+    # Doctrine result cache). Mirrors prod so cross-worker cancel can be
+    # verified locally; the PHP services reach it at redis://redis:6379 from the
+    # dev overlay. prod supplies its own managed Redis.
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5

@@ -19,6 +19,10 @@ x-app-env: &app-env
   APP_ENV:
   APP_SECRET:
   DATABASE_URL:
+  # Shared cache pool DSN (cache.app → Redis in dev/prod; backs cooperative
+  # turn-cancellation across PHP workers — step-04). Dev sets this in
+  # compose.dev.yaml; prod must set this to managed Redis.
+  REDIS_URL:
   MESSENGER_TRANSPORT_DSN:
   MERCURE_URL:
   MERCURE_PUBLIC_URL:
