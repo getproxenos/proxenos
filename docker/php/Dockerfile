@@ -17,7 +17,11 @@ ARG BASE_IMAGE=serversideup/php:8.5-frankenphp
 
 FROM ${BASE_IMAGE} AS base
 USER root
-RUN install-php-extensions intl pdo_pgsql opcache
+# redis backs the shared `cache.app` pool (cooperative turn-cancellation +
+# Doctrine result cache) in dev/prod so a cancel POST and the streaming turn can
+# land on different PHP workers and still share one store (step-04). The `test`
+# env uses the filesystem adapter, so CI host runs never need this extension.
+RUN install-php-extensions intl pdo_pgsql opcache redis
 # Project PHP overrides. Filename prefixed `zz-` so it loads AFTER
 # serversideup's own ini files in /usr/local/etc/php/conf.d/ (which are
 # applied alphabetically) — last writer wins, so directives here override

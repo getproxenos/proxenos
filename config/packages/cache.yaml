@@ -1,9 +1,22 @@
 framework:
     cache:
-        # Default application cache pool. Filesystem adapter keeps it
-        # dependency-free (no Redis/APCu required) so it works under
-        # `make test` and in CI as-is. Backs the cross-request
-        # TurnCancellation signal (step-03 chunk D7, decision 4); promote to a
-        # shared adapter (Redis) when a multi-process deployment needs the
-        # cancel request to reach the worker handling the stream.
+        # Default application cache pool. The filesystem adapter is the
+        # dependency-free baseline (no Redis required) — it's what `make test`
+        # and CI run on, and it backs the cross-request TurnCancellation signal
+        # (step-03 chunk D7, decision 4) for single-process use. dev + prod
+        # override `app` to Redis below (step-04) so the cancel request can
+        # reach whichever PHP worker is handling the stream in a multi-process
+        # deployment; `test` (and any disk-only environment) stays on filesystem.
         app: cache.adapter.filesystem
+
+# dev + prod back `cache.app` with a shared Redis pool so cooperative
+# cancellation (and the Doctrine result cache, which derives its adapter from
+# cache.app) survives across PHP workers. The DSN comes from REDIS_URL — the dev
+# compose `redis` service in dev, managed Redis in prod (see compose.prod.yaml).
+when@dev: &redis_cache_app
+    framework:
+        cache:
+            app: cache.adapter.redis
+            default_redis_provider: '%env(REDIS_URL)%'
+
+when@prod: *redis_cache_app
