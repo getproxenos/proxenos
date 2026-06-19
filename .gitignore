@@ -15,3 +15,16 @@
 # Claude Code — local/runtime state
 /.claude/settings.local.json
 config/reference.php
+
+# Xcind
+/.xcind/
+.xcind.override.yaml
+.xcind.*.override.yaml
+.xcind.override.sh
+.xcind.*.override.sh
+.env.*.local
+# Xcind auto-includes a gitignored `.override` sibling for each env file
+# (docs/guides/env-files.md). Local-only overrides — e.g. this developer's
+# public MERCURE_PUBLIC_URL in .env.docker.dev.override — never get committed.
+.env.override
+.env.*.override

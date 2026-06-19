@@ -27,6 +27,11 @@ RUN install-php-extensions intl pdo_pgsql opcache redis
 # applied alphabetically) — last writer wins, so directives here override
 # the upstream defaults. See docker/php/conf.d/session.ini for the rationale.
 COPY docker/php/conf.d/session.ini /usr/local/etc/php/conf.d/zz-session.ini
+# serversideup runs every /etc/entrypoint.d/* script at container boot (after
+# the dev bind-mount is in place), then execs the server. This hook creates
+# the ${APP_ENV}-derived session.save_path dir that PHP's native files handler
+# won't create on its own. See the script + session.ini for the rationale.
+COPY --chmod=755 docker/php/entrypoint.d/15-create-session-dir.sh /etc/entrypoint.d/15-create-session-dir.sh
 USER www-data
 WORKDIR /var/www/html
 
@@ -50,8 +55,15 @@ USER www-data
 # dev — base + xdebug; source bind-mounted at runtime (compose.dev.yaml)
 # -----------------------------------------------------------------------------
 FROM base AS dev
+
+ARG USER_ID
+ARG GROUP_ID
+
 USER root
-RUN install-php-extensions xdebug
+RUN docker-php-serversideup-set-id www-data $USER_ID:$GROUP_ID && \
+    docker-php-serversideup-set-file-permissions --owner $USER_ID:$GROUP_ID && \
+    install-php-extensions xdebug
+
 USER www-data
 
 # -----------------------------------------------------------------------------
