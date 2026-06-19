@@ -92,6 +92,24 @@ final class ApiChatController extends AbstractController
         // thread (step-03 chunk D4).
         $isNewlyTitleableThread = null === $existing || null === $existing->getTitle();
 
+        // Release the PHP session write lock BEFORE entering ChatRespondLoop.
+        // The loop blocks the request for the full streaming duration (5–15s).
+        // PHP's session_start() acquires an exclusive lock on the session file
+        // that is held until the request ends or session_write_close() runs;
+        // every other request authenticated by the same session (notably the
+        // cooperative-cancel POST from the same browser tab) blocks waiting
+        // for that lock. Cancels then queue and only run once the stream
+        // releases the lock at end-of-request — by which point there is
+        // nothing left to cancel. All session-touching code above (CSRF
+        // validation, membership/user lookup) has already run; nothing in the
+        // loop or the auto-titler reads or writes the session. Symfony's
+        // security listener may briefly re-acquire the lock at kernel.response
+        // to refresh the security token, but that write is short and does not
+        // block concurrent cancels meaningfully.
+        if ($request->hasSession() && $request->getSession()->isStarted()) {
+            $request->getSession()->save();
+        }
+
         $result = $this->loop->execute(new ChatRespondRequest(
             tenantId: $membership->getTenant()->getId(),
             userId: $user->getId(),
