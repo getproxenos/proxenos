@@ -45,6 +45,8 @@ export const initialThreadState = (threadId: string): ThreadState => ({
   runStatus: 'idle',
   activeTurnId: null,
   errorSummary: null,
+  hydrated: false,
+  systemPrompt: null,
 })
 
 export const initialStoreState = (): ConversationStoreState => ({
@@ -127,6 +129,20 @@ const foldIntoThread = (thread: ThreadState, event: ConversationEventEnvelope): 
       return applyAssistantTurnCompleted(thread, event, seenEventIds, lastSeenSequence)
     case 'assistant_turn_failed':
       return applyAssistantTurnFailed(thread, event, seenEventIds, lastSeenSequence)
+    case 'assistant_turn_cancelled':
+      return applyAssistantTurnCancelled(thread, event, seenEventIds, lastSeenSequence)
+    case 'thread_renamed':
+    case 'thread_archived':
+      // Thread-list lifecycle (D2): title/archived state lives in the sidebar's
+      // thread-list adapter (`GET /api/threads`), NOT the per-thread message
+      // store. These frames ride the same Mercure/replay envelope, so the
+      // reducer MUST still fold them — but only to advance the cursor and
+      // dedup set. Skipping the case would fall through the switch and write
+      // `undefined` into `threadsById`, corrupting the active thread the first
+      // time a new thread auto-titles via `thread_renamed`.
+      return { ...thread, seenEventIds, lastSeenSequence }
+    case 'thread_system_prompt_set':
+      return applyThreadSystemPromptSet(thread, event, seenEventIds, lastSeenSequence)
   }
 }
 
@@ -236,6 +252,63 @@ const applyAssistantTurnFailed = (
 }
 
 /**
+ * Cooperative-cancel terminal (D7 backend `assistant_turn_cancelled`,
+ * handoff §4 case 5). Mirrors {@link applyAssistantTurnFailed}: settle
+ * `runStatus`, clear `activeTurnId`, and mark the partial assistant message
+ * — but `'cancelled'` rather than `'failed'`, since a stopped turn is not an
+ * error. `errorSummary` is intentionally left untouched (a cancel carries no
+ * error; D7 emits `error_summary: ''`). Idempotent: a duplicate/late
+ * envelope is dropped by `foldEvent`'s `seenEventIds`/sequence guards before
+ * this runs, so the terminal folds exactly once. Reads the D7 payload keys
+ * `{ message_id, finish_reason: 'cancelled', error_summary }`.
+ */
+const applyAssistantTurnCancelled = (
+  thread: ThreadState,
+  event: ConversationEventEnvelope,
+  seenEventIds: Set<string>,
+  lastSeenSequence: number,
+): ThreadState => {
+  const rawMessageId = event.payload.message_id
+  const messageId = typeof rawMessageId === 'string' ? rawMessageId : null
+  const messages =
+    messageId === null
+      ? thread.messages
+      : thread.messages.map((m) =>
+          m.id === messageId ? { ...m, status: 'cancelled' as const } : m,
+        )
+  return {
+    ...thread,
+    seenEventIds,
+    lastSeenSequence,
+    messages,
+    runStatus: 'cancelled',
+    activeTurnId: null,
+  }
+}
+
+/**
+ * Per-thread system-prompt override (D9 `thread_system_prompt_set`, D10). The
+ * payload key is `system_prompt` (wire snake_case); a `null` value clears the
+ * override. Purely a projection of the latest set event onto `systemPrompt` —
+ * it touches no message/run state, so it never disturbs the streaming or
+ * reconciliation paths. Idempotent via `foldEvent`'s id/sequence guards.
+ */
+const applyThreadSystemPromptSet = (
+  thread: ThreadState,
+  event: ConversationEventEnvelope,
+  seenEventIds: Set<string>,
+  lastSeenSequence: number,
+): ThreadState => {
+  const raw = event.payload.system_prompt
+  return {
+    ...thread,
+    seenEventIds,
+    lastSeenSequence,
+    systemPrompt: typeof raw === 'string' ? raw : null,
+  }
+}
+
+/**
  * Thread switch — does NOT discard the prior thread's state
  * (background subscriptions continue to fold there). The UI reads
  * `state.threadsById[state.currentThreadId]` (handoff §4 case 3).
@@ -267,6 +340,30 @@ export const markCancelRequested = (
     threadsById: {
       ...withThread.threadsById,
       [threadId]: { ...thread, runStatus: 'cancelling' },
+    },
+  }
+}
+
+/**
+ * Mark a thread's cursor-replay (`hydrateThread`) as settled — the signal D6's
+ * `deriveThreadView` reads to tell "pre-hydration loading" apart from a
+ * genuinely empty thread. The shell calls this once the replay attempt
+ * completes (success OR failure), so an empty thread stops spinning instead of
+ * stalling silently. Reference-stable once already hydrated, so a re-hydrate
+ * (reconnect replay) is a no-op that won't churn the store.
+ */
+export const markHydrated = (
+  state: ConversationStoreState,
+  threadId: string,
+): ConversationStoreState => {
+  const withThread = ensureThread(state, threadId)
+  const thread = withThread.threadsById[threadId]!
+  if (thread.hydrated) return withThread
+  return {
+    ...withThread,
+    threadsById: {
+      ...withThread.threadsById,
+      [threadId]: { ...thread, hydrated: true },
     },
   }
 }

@@ -1,4 +1,11 @@
 parameters:
+    # Auto-title source binding (step-03 chunk D4, ADR-027 env convention
+    # PROXENOS_{FEATURE}_MODEL_PROFILE). Empty by default → ThreadAutoTitler
+    # uses the first-N-chars heuristic. Set this to a resolvable
+    # `proxenos.task.summarize` profile once F1 lands to route titling through a
+    # model; an unknown/absent profile falls back to the heuristic. Operator-only
+    # (decision 6 / ADR-008) — never a user choice.
+    env(PROXENOS_AUTOTITLE_MODEL_PROFILE): ''
 
 services:
     _defaults:
@@ -47,3 +54,14 @@ services:
                 anthropic: '@ai.platform.anthropic'
                 generic.default: '@ai.platform.generic.default'
     App\Ai\ModelProfile\ModelProfileResolver: '@App\Ai\ModelProfile\ConfigModelProfileResolver'
+
+    # Cross-request cooperative cancel signal (step-03 chunk D7). Production
+    # binding is cache-backed (cache.app); CacheTurnCancellation autowires the
+    # default app pool via CacheItemPoolInterface.
+    App\Ai\Chat\TurnCancellation: '@App\Ai\Chat\CacheTurnCancellation'
+
+    # Auto-titler (step-03 chunk D4). The model-profile name is operator config;
+    # the rest autowires (heuristic source, lifecycle service, resolver).
+    App\Conversation\Title\ThreadAutoTitler:
+        arguments:
+            $modelProfile: '%env(PROXENOS_AUTOTITLE_MODEL_PROFILE)%'

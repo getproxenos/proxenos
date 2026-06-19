@@ -148,4 +148,11 @@ class Message
         $this->completedAt = $failedAt;
         $this->bumpSequence($sequence);
     }
+
+    public function markCancelled(int $sequence, \DateTimeImmutable $cancelledAt): void
+    {
+        $this->status = MessageStatus::CANCELLED;
+        $this->completedAt = $cancelledAt;
+        $this->bumpSequence($sequence);
+    }
 }

@@ -115,6 +115,13 @@ class Turn
         $this->bumpSequence($sequence);
     }
 
+    public function markCancelled(int $sequence, \DateTimeImmutable $cancelledAt): void
+    {
+        $this->status = TurnStatus::CANCELLED;
+        $this->completedAt = $cancelledAt;
+        $this->bumpSequence($sequence);
+    }
+
     private function bumpSequence(int $sequence): void
     {
         if ($sequence > $this->lastSequence) {

@@ -273,6 +273,130 @@ describe('assistant_turn_failed projection', () => {
   })
 })
 
+describe('assistant_turn_cancelled projection (D8 / handoff §4 case 5)', () => {
+  const cancelEvent = (id = 'evt-cancelled'): ConversationEventEnvelope =>
+    makeEvent({
+      id,
+      sequence: 4,
+      type: 'assistant_turn_cancelled',
+      turn_id: TURN_ID,
+      payload: { message_id: ASSISTANT_MSG_ID, finish_reason: 'cancelled', error_summary: '' },
+    })
+
+  it('settles a cancel-before-terminal run onto the cancelled event', () => {
+    // user + turn-created + a delta → an in-flight assistant message.
+    let state = foldEvents(initialStoreState(), [
+      canonicalTurn()[0]!,
+      canonicalTurn()[1]!,
+      canonicalTurn()[2]!,
+    ])
+    expect(state.threadsById[TENANT_THREAD_A]!.runStatus).toBe('streaming')
+
+    // User clicks Stop before any terminal arrives.
+    state = markCancelRequested(state, TENANT_THREAD_A)
+    expect(state.threadsById[TENANT_THREAD_A]!.runStatus).toBe('cancelling')
+
+    // The loop's terminal cancelled event settles the held run.
+    state = foldEvent(state, cancelEvent())
+    const thread = state.threadsById[TENANT_THREAD_A]!
+    expect(thread.runStatus).toBe('cancelled')
+    expect(thread.activeTurnId).toBeNull()
+    // The partial assistant text is preserved, marked stopped (not failed).
+    expect(thread.messages[1]!.text).toBe('hi back')
+    expect(thread.messages[1]!.status).toBe('cancelled')
+    // A cancel is not an error — errorSummary stays clear.
+    expect(thread.errorSummary).toBeNull()
+  })
+
+  it('settles even with no assistant delta (message_id null → no message mutated)', () => {
+    let state = foldEvents(initialStoreState(), [canonicalTurn()[0]!, canonicalTurn()[1]!])
+    state = markCancelRequested(state, TENANT_THREAD_A)
+    state = foldEvent(
+      state,
+      makeEvent({
+        id: 'evt-cancelled-nodelta',
+        sequence: 4,
+        type: 'assistant_turn_cancelled',
+        turn_id: TURN_ID,
+        payload: { message_id: null, finish_reason: 'cancelled', error_summary: '' },
+      }),
+    )
+    const thread = state.threadsById[TENANT_THREAD_A]!
+    expect(thread.runStatus).toBe('cancelled')
+    expect(thread.activeTurnId).toBeNull()
+    // Only the user message exists; nothing to mark.
+    expect(thread.messages).toHaveLength(1)
+    expect(thread.messages[0]!.role).toBe('user')
+  })
+
+  it('folds a duplicate / late cancelled event exactly once (idempotent)', () => {
+    let state = foldEvents(initialStoreState(), [
+      canonicalTurn()[0]!,
+      canonicalTurn()[1]!,
+      canonicalTurn()[2]!,
+    ])
+    state = foldEvent(state, cancelEvent())
+    const settled = state.threadsById[TENANT_THREAD_A]!
+    expect(settled.runStatus).toBe('cancelled')
+    expect(settled.messages[1]!.status).toBe('cancelled')
+
+    // Same envelope (same id) arriving again — live+replay race, or a late
+    // re-delivery — must not re-fold or regress the settled run.
+    state = foldEvent(state, cancelEvent())
+    const after = state.threadsById[TENANT_THREAD_A]!
+    expect(after.runStatus).toBe('cancelled')
+    expect(after.messages).toHaveLength(2)
+    expect(after.messages[1]!.status).toBe('cancelled')
+    // State is reference-stable on the no-op re-fold (dedup short-circuits).
+    expect(after).toBe(settled)
+  })
+})
+
+describe('foldEvent (thread_system_prompt_set, D10)', () => {
+  const setEvent = (over: Partial<ConversationEventEnvelope> & { sequence: number }) =>
+    makeEvent({
+      type: 'thread_system_prompt_set',
+      actor_type: 'user',
+      ...over,
+    })
+
+  it('projects the override onto systemPrompt (the editor loads it from here)', () => {
+    const state = foldEvent(
+      initialStoreState(),
+      setEvent({ id: 'evt-sp-1', sequence: 1, payload: { system_prompt: 'Be terse.' } }),
+    )
+    expect(state.threadsById[TENANT_THREAD_A]!.systemPrompt).toBe('Be terse.')
+  })
+
+  it('clears the override on a null payload', () => {
+    let state = foldEvent(
+      initialStoreState(),
+      setEvent({ id: 'evt-sp-1', sequence: 1, payload: { system_prompt: 'Be terse.' } }),
+    )
+    state = foldEvent(
+      state,
+      setEvent({ id: 'evt-sp-2', sequence: 2, payload: { system_prompt: null } }),
+    )
+    expect(state.threadsById[TENANT_THREAD_A]!.systemPrompt).toBeNull()
+  })
+
+  it('does not disturb message/run state (additive to the streaming path)', () => {
+    let state = foldEvents(initialStoreState(), canonicalTurn())
+    state = foldEvent(
+      state,
+      setEvent({ id: 'evt-sp-1', sequence: 5, payload: { system_prompt: 'persona' } }),
+    )
+    const thread = state.threadsById[TENANT_THREAD_A]!
+    expect(thread.systemPrompt).toBe('persona')
+    expect(thread.runStatus).toBe('completed')
+    expect(thread.messages).toHaveLength(2)
+  })
+
+  it('seeds systemPrompt null on a fresh thread', () => {
+    expect(initialThreadState(TENANT_THREAD_A).systemPrompt).toBeNull()
+  })
+})
+
 describe('initial state helpers', () => {
   it('seeds an empty thread state', () => {
     const t = initialThreadState(TENANT_THREAD_A)
@@ -280,5 +404,50 @@ describe('initial state helpers', () => {
     expect(t.seenEventIds.size).toBe(0)
     expect(t.messages).toEqual([])
     expect(t.runStatus).toBe('idle')
+  })
+})
+
+describe('thread-list lifecycle events over the live envelope', () => {
+  // Regression: thread_renamed / thread_archived ride the same Mercure/replay
+  // envelope as message events. Before they were added to the union + switch,
+  // they fell through foldIntoThread() and wrote `undefined` into
+  // threadsById[thread_id], corrupting the active thread the first time a new
+  // thread auto-titled via thread_renamed.
+  it('folds thread_renamed without corrupting the per-thread store', () => {
+    let state = foldEvents(initialStoreState(), canonicalTurn())
+
+    state = foldEvent(
+      state,
+      makeEvent({
+        id: 'evt-renamed',
+        sequence: 5,
+        type: 'thread_renamed',
+        payload: { title: 'Auto-titled thread' },
+      }),
+    )
+
+    const thread = state.threadsById[TENANT_THREAD_A]!
+    // Still a valid ThreadState (not undefined) and cursor advanced.
+    expect(thread).toBeDefined()
+    expect(thread.threadId).toBe(TENANT_THREAD_A)
+    expect(thread.lastSeenSequence).toBe(5)
+    expect(thread.seenEventIds.has('evt-renamed')).toBe(true)
+    // Message/run state untouched — the title lives in the thread-list adapter.
+    expect(thread.messages).toHaveLength(2)
+    expect(thread.runStatus).toBe('completed')
+  })
+
+  it('folds thread_archived as a cursor-advancing no-op', () => {
+    let state = foldEvents(initialStoreState(), canonicalTurn())
+
+    state = foldEvent(
+      state,
+      makeEvent({ id: 'evt-archived', sequence: 5, type: 'thread_archived' }),
+    )
+
+    const thread = state.threadsById[TENANT_THREAD_A]!
+    expect(thread).toBeDefined()
+    expect(thread.lastSeenSequence).toBe(5)
+    expect(thread.messages).toHaveLength(2)
   })
 })

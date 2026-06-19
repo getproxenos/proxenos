@@ -38,8 +38,14 @@ services:
     environment:
       <<: *app-env
       # FrankenPHP worker mode — keep the kernel resident; symfony/runtime loops
-      # requests through public/index.php.
-      FRANKENPHP_CONFIG: "worker /var/www/html/public/index.php"
+      # requests through public/index.php. The trailing integer is the PHP
+      # worker count: a streaming chat submit blocks its worker for the full
+      # turn duration (multi-second), so the parallel cancel POST and any
+      # incidental requests need their own workers or they queue and arrive
+      # only when the stream is already done. 8 is enough headroom for one
+      # active stream + cancel + a couple background fetches on dev; revisit
+      # for prod when concurrency profile is clearer.
+      FRANKENPHP_CONFIG: "worker /var/www/html/public/index.php 8"
       # Caddy extra directives: (1) FrankenPHP's built-in Mercure hub at
       # /.well-known/mercure; (2) serve the decoupled SPA built into public/app as
       # static files, with client-side-routing fallback to its index.html. Caddy

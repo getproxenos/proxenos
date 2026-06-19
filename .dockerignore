@@ -9,6 +9,9 @@
 
 # Docker tooling + host orchestration (not needed in the image)
 /docker/
+# …except the PHP conf.d overrides, which the Dockerfile copies into
+# /usr/local/etc/php/conf.d/ at build time (see Dockerfile base stage).
+!/docker/php/conf.d/
 docker-bake.hcl
 Makefile
 

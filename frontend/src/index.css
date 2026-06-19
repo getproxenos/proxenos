@@ -17,23 +17,276 @@ body {
     margin: 0;
 }
 
-.app {
-    max-width: 48rem;
-    margin: 0 auto;
-    padding: 2rem 1rem;
+.app-shell {
     display: flex;
     flex-direction: column;
-    gap: 1.5rem;
-    min-height: 100vh;
+    height: 100vh;
 }
 
-.app-header h1 {
-    margin: 0 0 0.25rem;
-    font-size: 1.5rem;
+.app-topbar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent);
 }
 
-.app-header p {
+.app-brand {
+    font-weight: 600;
+}
+
+.app-usermenu {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.app-tenant {
+    opacity: 0.7;
+}
+
+.app-user-email {
+    opacity: 0.9;
+}
+
+.app-settings,
+.thread-systemprompt {
+    padding: 0.35rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.thread-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0.5rem 0.75rem 0;
+}
+
+/* --- System-prompt editor modal (D10) --- */
+.app-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: color-mix(in srgb, black 45%, transparent);
+    z-index: 50;
+}
+
+.app-modal {
+    width: min(40rem, calc(100vw - 2rem));
+    max-height: calc(100vh - 4rem);
+    overflow: auto;
+    padding: 1.25rem;
+    border-radius: 0.75rem;
+    background: Canvas;
+    color: CanvasText;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.app-modal-title {
     margin: 0;
+    font-size: 1.1rem;
+}
+
+.app-modal-description {
+    margin: 0;
+    opacity: 0.75;
+    font-size: 0.9rem;
+}
+
+.app-modal-textarea {
+    width: 100%;
+    box-sizing: border-box;
+    resize: vertical;
+    font: inherit;
+    padding: 0.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    background: transparent;
+    color: inherit;
+}
+
+.app-modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+.app-modal-actions button {
+    padding: 0.35rem 0.9rem;
+    border-radius: 0.5rem;
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.app-modal-actions button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.app-signout {
+    margin: 0;
+}
+
+.app-signout button {
+    padding: 0.35rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.app-error {
+    margin: 0;
+    color: #b91c1c;
+}
+
+.app-body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+}
+
+.app-sidebar {
+    width: 16rem;
+    flex-shrink: 0;
+    padding: 1rem;
+    border-right: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+    overflow-y: auto;
+}
+
+.app-sidebar-title {
+    margin: 0 0 0.5rem;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.6;
+}
+
+.app-sidebar-placeholder {
+    margin: 0;
+    opacity: 0.6;
+    font-style: italic;
+}
+
+.app-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.app-newthread {
+    padding: 0.25rem 0.6rem;
+    border-radius: 0.5rem;
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.app-threadlist {
+    list-style: none;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.app-thread-item {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-radius: 0.5rem;
+    padding: 0.1rem;
+}
+
+.app-thread-item.is-active {
+    background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.app-thread-switch {
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    padding: 0.35rem 0.5rem;
+    border: none;
+    border-radius: 0.4rem;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.app-thread-rename {
+    flex: 1;
+    min-width: 0;
+    padding: 0.3rem 0.5rem;
+    border-radius: 0.4rem;
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+}
+
+.app-thread-actions {
+    display: flex;
+    gap: 0.2rem;
+    flex-shrink: 0;
+}
+
+.app-thread-actions button {
+    padding: 0.2rem 0.4rem;
+    font-size: 0.7rem;
+    border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+    border-radius: 0.35rem;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    opacity: 0.75;
+}
+
+.app-main {
+    flex: 1;
+    min-width: 0;
+    /*
+     * min-height: 0 lets the inner .thread + ThreadPrimitive.Viewport actually
+     * bound their height to the layout — without it the default flex
+     * min-height: auto lets the viewport grow with its message content, the
+     * Viewport's own scroll never engages, and assistant-ui's mid-stream
+     * autoscroll no-ops (it targets the Viewport, not .app-main). The page-level
+     * scroll then leaves the composer/Stop button below the fold during stream.
+     * Removed the prior overflow-y: auto fallback: the Viewport is the sole
+     * scroll container by design.
+     */
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 1rem;
+}
+
+.app-empty {
+    margin: auto;
+    text-align: center;
     opacity: 0.7;
 }
 
@@ -42,6 +295,9 @@ body {
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
+    /* Pairs with .app-main above so .thread-viewport-wrap (which already has
+     * min-height: 0) can actually constrain the assistant-ui Viewport. */
+    min-height: 0;
 }
 
 .thread-empty {
@@ -85,7 +341,8 @@ body {
     font: inherit;
 }
 
-.composer-send {
+.composer-send,
+.composer-cancel {
     padding: 0.5rem 1rem;
     border-radius: 0.5rem;
     border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
@@ -93,4 +350,285 @@ body {
     color: inherit;
     font: inherit;
     cursor: pointer;
+}
+
+/* Stop button stands out against Send while the turn is running/cancelling. */
+.composer-cancel {
+    border-color: color-mix(in srgb, #c0392b 60%, transparent);
+    color: #c0392b;
+}
+
+/* --- D5: viewport + jump-to-latest --- */
+
+.thread-viewport-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+/*
+ * assistant-ui's <ThreadPrimitive.Viewport> renders a bare <div> with no
+ * styles. Its built-in autoScroll calls scrollTo on this element, which is a
+ * no-op unless we give it overflow + a bounded height. flex: 1 + min-height: 0
+ * lets it fill the wrap; overflow-y: auto makes the Viewport (rather than any
+ * ancestor) be the scroll container, so autoScroll's per-token scroll, the
+ * initial scrollToBottomOnInitialize, and the JumpToLatest button's scroll
+ * geometry all act on the same element.
+ */
+.thread-viewport {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.jump-to-latest {
+    position: absolute;
+    bottom: 0.75rem;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.375rem 0.75rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    background: Canvas;
+    color: inherit;
+    font: inherit;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    box-shadow: 0 2px 8px color-mix(in srgb, currentColor 20%, transparent);
+}
+
+/* --- D6: honest empty / loading / FAILED / CANCELLED status surfaces --- */
+
+.thread-loading,
+.thread-empty {
+    margin: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    text-align: center;
+    opacity: 0.6;
+}
+
+.thread-empty {
+    font-style: italic;
+}
+
+/* Banner shown after the message list for a terminal/transient run state. */
+.thread-status {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    margin-top: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+}
+
+/* FAILED is an honest error affordance — warm border + summary text. */
+.thread-status-failed {
+    border-color: color-mix(in srgb, #c0392b 55%, transparent);
+    background: color-mix(in srgb, #c0392b 8%, transparent);
+    color: #c0392b;
+}
+
+/* CANCELLED / cancelling are neutral "stopped" notices — NOT error styling. */
+.thread-status-cancelled,
+.thread-status-cancelling {
+    opacity: 0.7;
+}
+
+.thread-status-title {
+    font-size: 0.875rem;
+}
+
+.thread-status-detail {
+    font-size: 0.8125rem;
+    opacity: 0.8;
+    white-space: pre-wrap;
+}
+
+/* --- D5: per-message + per-code-block copy --- */
+
+.message-actions {
+    display: flex;
+    gap: 0.25rem;
+    margin-top: 0.25rem;
+    opacity: 0;
+    transition: opacity 0.12s ease-in-out;
+}
+
+.message:hover .message-actions,
+.message-actions:focus-within {
+    opacity: 1;
+}
+
+.copy-button {
+    padding: 0.125rem 0.5rem;
+    border-radius: 0.375rem;
+    border: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-size: 0.75rem;
+    cursor: pointer;
+}
+
+.copy-button[data-copied] {
+    opacity: 0.7;
+}
+
+/* --- D5: markdown body --- */
+
+.markdown > :first-child {
+    margin-top: 0;
+}
+
+.markdown > :last-child {
+    margin-bottom: 0;
+}
+
+.markdown :not(pre) > code {
+    padding: 0.1em 0.35em;
+    border-radius: 0.25rem;
+    background: color-mix(in srgb, currentColor 10%, transparent);
+    font-size: 0.875em;
+}
+
+.markdown table {
+    border-collapse: collapse;
+}
+
+.markdown th,
+.markdown td {
+    border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+    padding: 0.25rem 0.5rem;
+}
+
+/* --- D5: fenced code block + its copy button --- */
+
+.code-block {
+    position: relative;
+    margin: 0.5rem 0;
+}
+
+.code-block-toolbar {
+    position: absolute;
+    top: 0.375rem;
+    right: 0.375rem;
+    opacity: 0;
+    transition: opacity 0.12s ease-in-out;
+}
+
+.code-block:hover .code-block-toolbar,
+.code-block-toolbar:focus-within {
+    opacity: 1;
+}
+
+.code-block-pre {
+    margin: 0;
+    padding: 0.75rem;
+    overflow-x: auto;
+    border-radius: 0.5rem;
+    background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.code-block-pre code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8125rem;
+}
+
+/* Compact highlight.js theme (rehype-highlight emits these classes). Kept
+ * inline instead of importing a highlight.js theme file to avoid pulling the
+ * package in as a direct dep just for CSS. */
+.hljs-comment,
+.hljs-quote {
+    color: #6a737d;
+    font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-type {
+    color: #d73a49;
+}
+
+.hljs-string,
+.hljs-attr,
+.hljs-regexp,
+.hljs-addition {
+    color: #032f62;
+}
+
+.hljs-number,
+.hljs-built_in,
+.hljs-builtin-name,
+.hljs-symbol {
+    color: #005cc5;
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-name {
+    color: #6f42c1;
+}
+
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable {
+    color: #e36209;
+}
+
+.hljs-deletion {
+    color: #b31d28;
+}
+
+.hljs-emphasis {
+    font-style: italic;
+}
+
+.hljs-strong {
+    font-weight: 700;
+}
+
+@media (prefers-color-scheme: dark) {
+    .hljs-keyword,
+    .hljs-selector-tag,
+    .hljs-literal,
+    .hljs-type {
+        color: #ff7b72;
+    }
+
+    .hljs-string,
+    .hljs-attr,
+    .hljs-regexp,
+    .hljs-addition {
+        color: #a5d6ff;
+    }
+
+    .hljs-number,
+    .hljs-built_in,
+    .hljs-builtin-name,
+    .hljs-symbol {
+        color: #79c0ff;
+    }
+
+    .hljs-title,
+    .hljs-section,
+    .hljs-name {
+        color: #d2a8ff;
+    }
+
+    .hljs-attribute,
+    .hljs-variable,
+    .hljs-template-variable {
+        color: #ffa657;
+    }
+
+    .hljs-comment,
+    .hljs-quote {
+        color: #8b949e;
+    }
 }

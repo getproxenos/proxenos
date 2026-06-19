@@ -1,0 +1,9 @@
+framework:
+    cache:
+        # Default application cache pool. Filesystem adapter keeps it
+        # dependency-free (no Redis/APCu required) so it works under
+        # `make test` and in CI as-is. Backs the cross-request
+        # TurnCancellation signal (step-03 chunk D7, decision 4); promote to a
+        # shared adapter (Redis) when a multi-process deployment needs the
+        # cancel request to reach the worker handling the stream.
+        app: cache.adapter.filesystem

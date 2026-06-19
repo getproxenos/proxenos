@@ -37,6 +37,15 @@ final class User implements UserInterface, PasswordAuthenticatedUserInterface
     #[ORM\Column(name: 'created_at', type: 'datetime_immutable')]
     private \DateTimeImmutable $createdAt;
 
+    /**
+     * Global default system prompt for this user (step-03 chunk D9, decision 5).
+     * Per-user "operator setting" at its simplest — a nullable text column read
+     * by {@see \App\Ai\Chat\SystemPromptResolver} when a thread has no override.
+     * Promote to a settings table only when a second setting appears.
+     */
+    #[ORM\Column(name: 'system_prompt_default', type: 'text', nullable: true)]
+    private ?string $systemPromptDefault = null;
+
     public function __construct(string $email, string $passwordHash, ClockInterface $clock)
     {
         $this->id = Uuid::v7();
@@ -58,6 +67,16 @@ final class User implements UserInterface, PasswordAuthenticatedUserInterface
     public function getCreatedAt(): \DateTimeImmutable
     {
         return $this->createdAt;
+    }
+
+    public function getSystemPromptDefault(): ?string
+    {
+        return $this->systemPromptDefault;
+    }
+
+    public function setSystemPromptDefault(?string $systemPromptDefault): void
+    {
+        $this->systemPromptDefault = $systemPromptDefault;
     }
 
     public function coreUri(): string

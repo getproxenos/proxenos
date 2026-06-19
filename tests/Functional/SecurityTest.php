@@ -61,15 +61,24 @@ final class SecurityTest extends WebTestCase
         self::assertStringEndsWith('/login', (string) $response->headers->get('Location'));
     }
 
-    public function testValidCredentialsRedirectToMeAndRenderTenant(): void
+    public function testValidCredentialsRedirectToApp(): void
     {
+        // Decision 8: the SPA (/app) is now the default post-login target,
+        // not the /me placeholder.
         $this->loginAs('beau@example.com', 'hunter2hunter2');
 
         $location = (string) $this->client->getResponse()->headers->get('Location');
         self::assertSame(302, $this->client->getResponse()->getStatusCode());
-        self::assertStringEndsWith('/me', $location);
+        self::assertStringEndsWith('/app', $location);
+    }
 
-        $this->client->followRedirect();
+    public function testMePlaceholderStillRendersTenantForAuthedUser(): void
+    {
+        // The /me placeholder page stays (decision 8) — it is just no longer
+        // the post-login target. It still server-renders the user's identity.
+        $this->loginAs('beau@example.com', 'hunter2hunter2');
+
+        $this->client->request('GET', '/me');
         self::assertSame(200, $this->client->getResponse()->getStatusCode());
 
         $body = (string) $this->client->getResponse()->getContent();

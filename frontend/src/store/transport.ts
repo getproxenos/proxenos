@@ -29,6 +29,19 @@ export interface ReplayPage {
   has_more: boolean
 }
 
+/** One row of `GET /api/threads` (D2 contract). `title` is nullable. */
+export interface ThreadListItemResponse {
+  id: string
+  title: string | null
+  status: string
+  updated_at: string
+}
+
+/** GET/PUT /api/me/settings — per-user settings (D9). v0 holds one field. */
+export interface MeSettingsResponse {
+  system_prompt_default: string | null
+}
+
 /** GET /api/me/bootstrap — identity, CSRF, Mercure descriptor. */
 export const fetchBootstrap = async (): Promise<BootstrapDescriptor> => {
   const res = await fetch('/api/me/bootstrap', { credentials: 'same-origin' })
@@ -64,6 +77,67 @@ export const fetchAllEventsAfter = async (
   return collected
 }
 
+/** GET /api/threads — the caller's active threads, server-ordered by updated_at. */
+export const fetchThreadList = async (): Promise<ThreadListItemResponse[]> => {
+  const res = await fetch('/api/threads', { credentials: 'same-origin' })
+  if (!res.ok) throw new Error(`thread list fetch failed: ${res.status}`)
+  return (await res.json()) as ThreadListItemResponse[]
+}
+
+/**
+ * POST /api/threads/{id}/rename — inline rename (D2 → 202). A blank or
+ * >200-char title is rejected with 400; the caller surfaces a friendly error.
+ */
+export const renameThread = async (
+  threadId: string,
+  title: string,
+  csrfToken: string,
+): Promise<void> => {
+  const res = await fetch(`/api/threads/${threadId}/rename`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': csrfToken,
+    },
+    body: JSON.stringify({ title }),
+  })
+  if (!res.ok) throw new Error(`rename failed: ${res.status}`)
+}
+
+/**
+ * PUT /api/threads/{id} — idempotently create an empty thread row.
+ *
+ * The shell calls this BEFORE the very first message in a brand-new
+ * client-minted thread so the SPA can re-bootstrap (and pick up a per-thread
+ * Mercure subscriber JWT, OQ5) before the streaming submit starts. Without
+ * it the submit's user_message_submitted event and assistant deltas all
+ * publish to a topic the SPA isn't yet subscribed to and only arrive via
+ * cursor replay AFTER the entire stream completes — the "type → silent
+ * pause → everything appears at once" symptom.
+ *
+ * 201 = freshly created. 200 = already existed (idempotent under page
+ * reloads / retries). Anything else is bubbled up by the throw.
+ */
+export const createThread = async (threadId: string, csrfToken: string): Promise<void> => {
+  const res = await fetch(`/api/threads/${threadId}`, {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: { 'X-CSRF-Token': csrfToken },
+  })
+  if (!res.ok) throw new Error(`create failed: ${res.status}`)
+}
+
+/** POST /api/threads/{id}/archive — soft hide (D2 → 202, decision 10). */
+export const archiveThread = async (threadId: string, csrfToken: string): Promise<void> => {
+  const res = await fetch(`/api/threads/${threadId}/archive`, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'X-CSRF-Token': csrfToken },
+  })
+  if (!res.ok) throw new Error(`archive failed: ${res.status}`)
+}
+
 /** POST /api/threads/{id}/messages — `onNew` from the SPA composer. */
 export const submitMessage = async (
   threadId: string,
@@ -94,6 +168,59 @@ export const requestCancel = async (
     headers: { 'X-CSRF-Token': csrfToken },
   })
   if (!res.ok) throw new Error(`cancel failed: ${res.status}`)
+}
+
+/**
+ * GET /api/me/settings — the caller's global system-prompt default (D9).
+ * `system_prompt_default` is null when no default is set.
+ */
+export const fetchMeSettings = async (): Promise<MeSettingsResponse> => {
+  const res = await fetch('/api/me/settings', { credentials: 'same-origin' })
+  if (!res.ok) throw new Error(`settings fetch failed: ${res.status}`)
+  return (await res.json()) as MeSettingsResponse
+}
+
+/**
+ * PUT /api/me/settings — set the global system-prompt default (D9 → 200).
+ * A null or blank value clears the default; the backend normalizes blank→null
+ * at the boundary, and the caller passes null for an honest clear.
+ */
+export const saveMeSettings = async (
+  systemPromptDefault: string | null,
+  csrfToken: string,
+): Promise<void> => {
+  const res = await fetch('/api/me/settings', {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': csrfToken,
+    },
+    body: JSON.stringify({ system_prompt_default: systemPromptDefault }),
+  })
+  if (!res.ok) throw new Error(`settings save failed: ${res.status}`)
+}
+
+/**
+ * PUT /api/threads/{id}/system-prompt — set the per-thread override (D9 → 202).
+ * A null value clears the override (effective prompt falls back to the global
+ * default); the backend also normalizes blank→null.
+ */
+export const saveThreadSystemPrompt = async (
+  threadId: string,
+  systemPrompt: string | null,
+  csrfToken: string,
+): Promise<void> => {
+  const res = await fetch(`/api/threads/${threadId}/system-prompt`, {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-CSRF-Token': csrfToken,
+    },
+    body: JSON.stringify({ system_prompt: systemPrompt }),
+  })
+  if (!res.ok) throw new Error(`system prompt save failed: ${res.status}`)
 }
 
 /**

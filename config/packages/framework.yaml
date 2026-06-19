@@ -16,6 +16,11 @@ framework:
         log: true
 
     # Sessions enabled (form login lands in 0.1; ADR-005/0.1 handoff).
+    # session.save_path is pinned at the PHP layer (see
+    # docker/php/conf.d/session.ini) so it survives FrankenPHP worker mode,
+    # which doesn't honor per-request ini_set from Symfony's framework.session
+    # save_path option. The PHP-level path points under var/, which is bind-
+    # mounted and gitignored in dev — sessions survive a `make down && up`.
     session:
         handler_id: null
         cookie_secure: auto

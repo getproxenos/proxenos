@@ -7,6 +7,7 @@ namespace App\Ai\Chat;
 use App\Ai\ModelProfile\ModelProfileResolver;
 use App\Conversation\Event\EventEnvelope;
 use App\Conversation\Event\Payload\AssistantContentDelta;
+use App\Conversation\Event\Payload\AssistantTurnCancelled;
 use App\Conversation\Event\Payload\AssistantTurnCompleted;
 use App\Conversation\Event\Payload\AssistantTurnCreated;
 use App\Conversation\Event\Payload\AssistantTurnFailed;
@@ -73,6 +74,14 @@ use Symfony\Component\Uid\Uuid;
  * real and should survive, and an "explain what happened" reply or a
  * retry-from-here UI both need it. Failure-event `error_summary` is
  * sanitized by {@see self::summarizeError()} — never a raw stack trace.
+ *
+ * Cancellation (step-03 chunk D7, decision 4): the cancel request arrives on a
+ * SEPARATE concurrent HTTP request, so the loop polls a cross-request
+ * {@see TurnCancellation} signal on each coalesced flush (cheap cadence, not
+ * per provider token). On a trip it stops draining the stream and appends a
+ * terminal `assistant_turn_cancelled` event from a NORMAL return path — never
+ * via the failure catch — moving the Turn (and any partial Message) to
+ * CANCELLED. Like failure, `user_message_submitted` is never rolled back.
  */
 final class ChatRespondLoop
 {
@@ -96,6 +105,8 @@ final class ChatRespondLoop
         private readonly MessagePartRepository $parts,
         private readonly EntityManagerInterface $em,
         private readonly PromptAssembler $prompts,
+        private readonly TurnCancellation $cancellation,
+        private readonly SystemPromptResolver $systemPrompts,
         private readonly LoggerInterface $logger = new NullLogger(),
     ) {
     }
@@ -117,7 +128,19 @@ final class ChatRespondLoop
         //    context contributions are prepended as a system segment AHEAD OF
         //    the conversation history. Zero attachments -> zero contributions
         //    -> identical MessageBag to the old dumb path.
-        $contributions = $this->prompts->assemble($request->threadId, $request->tenantId);
+        //
+        //    System prompt (step-03 chunk D9, decision 5/7): purely additive
+        //    over the step-02 entity path. The resolver returns at most one
+        //    weight-0 contribution (override > global default > none); we merge
+        //    it with the entity contributions and hand the combined list to the
+        //    SAME assemblePrompt() — which already sorts by weight ascending, so
+        //    the ordered contract [ systemPrompt(0), entityContext(100),
+        //    conversationHistory ] holds. When there is no system prompt AND no
+        //    attachments the merge collapses to [] and the MessageBag is
+        //    byte-identical to the step-02 path (regression guard).
+        $entityContributions = $this->prompts->assemble($request->threadId, $request->tenantId);
+        $systemContribution = $this->systemPrompts->forThread($request->threadId, $request->tenantId, $request->userId);
+        $contributions = array_merge(array_filter([$systemContribution]), $entityContributions);
         $messageBag = $this->assemblePrompt($request->threadId, $contributions);
 
         // 3. resolve profile -> Platform + model id + options
@@ -141,6 +164,7 @@ final class ChatRespondLoop
         $lastFlushedLen = 0;
         $lastFlushAtMs = $this->nowMs();
         $deltaCount = 0;
+        $cancelled = false;
 
         $emit = function (string $text) use ($request, $turnId, $assistantMessageId, &$deltaCount, &$lastFlushedLen, &$lastFlushAtMs): void {
             $this->appender->append(new EventEnvelope(
@@ -170,6 +194,18 @@ final class ChatRespondLoop
                     $emit($cumulative);
                     if (null !== $request->onDelta) {
                         ($request->onDelta)($cumulative);
+                    }
+
+                    // Cooperative cancellation (step-03 chunk D7, decision 4):
+                    // poll the cross-request signal at flush cadence — cheap
+                    // (one cache hit per coalesced flush, NOT per provider
+                    // token). On trip, stop draining the stream and fall
+                    // through to the NORMAL cancelled-return path below; this
+                    // is deliberately NOT an exception so it never reaches the
+                    // assistant_turn_failed catch.
+                    if ($this->cancellation->isRequested($turnId)) {
+                        $cancelled = true;
+                        break;
                     }
                 }
             }
@@ -223,6 +259,37 @@ final class ChatRespondLoop
                 throw new \RuntimeException(\sprintf('Model invocation failed for profile "%s": %s', $request->modelProfile, $e->getMessage()), 0, $e);
             }
             throw $e;
+        }
+
+        // 5b. Cooperative cancellation (step-03 chunk D7, decision 4). The
+        // loop broke out of the stream because the cross-request signal
+        // tripped after a coalesced flush. Append the terminal
+        // `assistant_turn_cancelled` (mirrors the failure path's
+        // message-id-when-delta-landed logic), clear the signal so it cannot
+        // leak into a later turn, and return a NORMAL ChatRespondResult — no
+        // assistant_turn_completed, and crucially NOT via the exception catch
+        // above. The user_message_submitted event survives, exactly as it does
+        // on failure: the user's input is real and should outlive the stop.
+        if ($cancelled) {
+            $this->appender->append(new EventEnvelope(
+                tenantId: $request->tenantId,
+                threadId: $request->threadId,
+                turnId: $turnId,
+                actorType: ActorType::ASSISTANT,
+                actorId: null,
+                payload: new AssistantTurnCancelled(
+                    messageId: $deltaCount > 0 ? $assistantMessageId : null,
+                ),
+            ));
+            $this->cancellation->clear($turnId);
+
+            return new ChatRespondResult(
+                threadId: $request->threadId,
+                turnId: $turnId,
+                assistantMessageId: $assistantMessageId,
+                assistantText: $cumulative,
+                usage: null,
+            );
         }
 
         // 6. flush the final cumulative text. Emit at least one delta even if

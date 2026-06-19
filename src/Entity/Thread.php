@@ -35,6 +35,15 @@ class Thread
     #[ORM\Column(type: 'string', length: 16)]
     private string $status;
 
+    /**
+     * Per-thread system-prompt override (step-03 chunk D9, decision 5). Nullable
+     * text column folded from `thread_system_prompt_set`; `null` means "no
+     * override" and {@see \App\Ai\Chat\SystemPromptResolver} falls back to the
+     * user's global default.
+     */
+    #[ORM\Column(name: 'system_prompt', type: 'text', nullable: true)]
+    private ?string $systemPrompt = null;
+
     #[ORM\Column(name: 'last_sequence', type: 'bigint')]
     private int $lastSequence;
 
@@ -85,6 +94,11 @@ class Thread
         return $this->status;
     }
 
+    public function getSystemPrompt(): ?string
+    {
+        return $this->systemPrompt;
+    }
+
     public function getLastSequence(): int
     {
         return $this->lastSequence;
@@ -109,6 +123,27 @@ class Thread
     public function setTitle(?string $title): void
     {
         $this->title = $title;
+    }
+
+    /**
+     * Soft-archive: flips the projection's status to `archived` so the active
+     * thread list (`findActiveByTenantOrderedByUpdatedAt`) stops listing it,
+     * without deleting any history (step-03 chunk D2, decision 10). The event
+     * log is untouched, so a replay reconstructs the archived state too.
+     */
+    public function markArchived(): void
+    {
+        $this->status = 'archived';
+    }
+
+    /**
+     * Set or clear the per-thread system-prompt override (step-03 chunk D9,
+     * decision 5). `null` clears it — the effective prompt then falls back to
+     * the user's global default. Folded from `thread_system_prompt_set`.
+     */
+    public function setSystemPrompt(?string $systemPrompt): void
+    {
+        $this->systemPrompt = $systemPrompt;
     }
 
     public function recordEvent(int $sequence, \DateTimeImmutable $occurredAt): void

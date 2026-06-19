@@ -13,6 +13,10 @@ export type ConversationEventType =
   | 'assistant_content_delta'
   | 'assistant_turn_completed'
   | 'assistant_turn_failed'
+  | 'assistant_turn_cancelled'
+  | 'thread_renamed'
+  | 'thread_archived'
+  | 'thread_system_prompt_set'
 
 export type ActorType = 'user' | 'assistant' | 'connector' | 'system' | 'extension'
 
@@ -29,8 +33,13 @@ export interface ConversationEventEnvelope {
   payload: Record<string, unknown>
 }
 
-/** Run lifecycle (`design-notes/streaming-runtime-notes.md` §4). */
-export type RunStatus = 'idle' | 'streaming' | 'cancelling' | 'completed' | 'failed'
+/**
+ * Run lifecycle (`design-notes/streaming-runtime-notes.md` §4).
+ * `'cancelling'` is the transient set by `markCancelRequested`; it settles to
+ * the terminal `'cancelled'` once the loop's `assistant_turn_cancelled` event
+ * arrives (D7 backend; handoff §4 case 5).
+ */
+export type RunStatus = 'idle' | 'streaming' | 'cancelling' | 'completed' | 'failed' | 'cancelled'
 
 /**
  * Host-projected message — the SPA's reducer reconstructs this from the
@@ -41,7 +50,7 @@ export interface HostMessage {
   id: string
   role: 'user' | 'assistant'
   text: string
-  status: 'complete' | 'streaming' | 'failed'
+  status: 'complete' | 'streaming' | 'failed' | 'cancelled'
   turnId: string | null
   position: number
 }
@@ -61,6 +70,24 @@ export interface ThreadState {
   activeTurnId: string | null
   /** Last error_summary when runStatus === 'failed'. */
   errorSummary: string | null
+  /**
+   * True once a cursor-replay (`hydrateThread`) has completed for this thread,
+   * regardless of whether it returned events. Distinguishes the honest
+   * "pre-hydration loading" surface from an actually-empty thread (D6): a
+   * freshly-selected thread starts `false`; the shell flips it via
+   * `markHydrated` after the replay attempt settles. Folds preserve it (they
+   * spread the prior thread), so live deltas never reset it.
+   */
+  hydrated: boolean
+  /**
+   * The thread's system-prompt override, folded from `thread_system_prompt_set`
+   * (D9/D10). `null` means no override — the effective prompt falls back to the
+   * user's global default. There is no GET endpoint for this value (backend is
+   * event-sourced), so the per-thread override editor reads it from here: the
+   * cursor replay + live Mercure stream carry the set events, the fold projects
+   * the latest, and the editor loads the current value off the focused thread.
+   */
+  systemPrompt: string | null
 }
 
 /**

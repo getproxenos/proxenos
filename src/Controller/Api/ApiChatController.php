@@ -6,9 +6,12 @@ namespace App\Controller\Api;
 
 use App\Ai\Chat\ChatRespondLoop;
 use App\Ai\Chat\ChatRespondRequest;
+use App\Ai\Chat\TurnCancellation;
+use App\Conversation\Title\ThreadAutoTitler;
 use App\Entity\User;
 use App\Repository\MembershipRepository;
 use App\Repository\ThreadRepository;
+use App\Repository\TurnRepository;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
@@ -32,11 +35,13 @@ use Symfony\Component\Uid\Uuid;
  *
  *   POST /api/threads/{id}/runs/{turnId}/cancel
  *     header: X-CSRF-Token
- *   -> stub. Records the intent; a follow-up wires cooperative
- *      cancellation through the loop (ADR-024 open question +
- *      ADR-025 assistant_turn_cancelled sketch). The SPA tolerates a
- *      "cancel requested, no terminal event yet" state by design
- *      (handoff §4 reconciliation case 5).
+ *   -> records the cooperative-cancel request in the cross-request
+ *      TurnCancellation store (step-03 chunk D7). The concurrently
+ *      streaming ChatRespondLoop polls it on each coalesced flush, stops
+ *      draining, and appends the terminal `assistant_turn_cancelled`
+ *      event. Returns 202; the SPA tolerates a "cancel requested, no
+ *      terminal event yet" state by design (handoff §4 reconciliation
+ *      case 5).
  *
  * Auth: same form_login session as Twig (handoff §3); CSRF token is
  * the 'chat' intention so the same token works for both surfaces
@@ -51,8 +56,11 @@ final class ApiChatController extends AbstractController
     public function __construct(
         private readonly MembershipRepository $memberships,
         private readonly ThreadRepository $threads,
+        private readonly TurnRepository $turns,
         private readonly ChatRespondLoop $loop,
         private readonly CsrfTokenManagerInterface $csrf,
+        private readonly ThreadAutoTitler $autoTitler,
+        private readonly TurnCancellation $cancellation,
     ) {
     }
 
@@ -77,12 +85,44 @@ final class ApiChatController extends AbstractController
         /** @var User $user */
         $user = $this->getUser();
 
+        // Gate the auto-titler on state captured BEFORE the loop runs: a thread
+        // with no row, or a row that was never titled, is "new" for this turn.
+        // After the first submit auto-titles it, the projected title is set, so
+        // a second message sees a title and the titler is skipped — once per
+        // thread (step-03 chunk D4).
+        $isNewlyTitleableThread = null === $existing || null === $existing->getTitle();
+
+        // Release the PHP session write lock BEFORE entering ChatRespondLoop.
+        // The loop blocks the request for the full streaming duration (5–15s).
+        // PHP's session_start() acquires an exclusive lock on the session file
+        // that is held until the request ends or session_write_close() runs;
+        // every other request authenticated by the same session (notably the
+        // cooperative-cancel POST from the same browser tab) blocks waiting
+        // for that lock. Cancels then queue and only run once the stream
+        // releases the lock at end-of-request — by which point there is
+        // nothing left to cancel. All session-touching code above (CSRF
+        // validation, membership/user lookup) has already run; nothing in the
+        // loop or the auto-titler reads or writes the session. Symfony's
+        // security listener may briefly re-acquire the lock at kernel.response
+        // to refresh the security token, but that write is short and does not
+        // block concurrent cancels meaningfully.
+        if ($request->hasSession() && $request->getSession()->isStarted()) {
+            $request->getSession()->save();
+        }
+
         $result = $this->loop->execute(new ChatRespondRequest(
             tenantId: $membership->getTenant()->getId(),
             userId: $user->getId(),
             threadId: $threadUuid,
             userMessageText: $text,
         ));
+
+        // D4: auto-title a freshly-created thread from its first user message.
+        // Runs AFTER the loop (the loop materialized the thread + folded its
+        // events) and stays out of ChatRespondLoop so the core loop is untouched.
+        if ($isNewlyTitleableThread) {
+            $this->autoTitler->autoTitle($threadUuid, $membership->getTenant()->getId(), $text);
+        }
 
         // 202: the SPA already saw deltas via Mercure; this response
         // confirms the turn boundaries. Body is metadata, not the
@@ -100,18 +140,32 @@ final class ApiChatController extends AbstractController
         $this->validateCsrf($request);
         $membership = $this->resolveMembershipOrAbort();
         $threadUuid = Uuid::fromString($threadId);
+        $turnUuid = Uuid::fromString($turnId);
 
-        $existing = $this->threads->find($threadUuid);
-        if (null !== $existing && !$existing->getTenantId()->equals($membership->getTenant()->getId())) {
-            throw $this->createAccessDeniedException('Thread does not belong to current tenant.');
+        // Ownership gate: the streaming loop polls cancellation by turn ID
+        // alone, so possession of a turn UUID must NOT be enough to cancel a
+        // run. Load the canonical Turn projection and require it to exist and
+        // to belong to BOTH the route thread and the authenticated tenant
+        // before setting the signal. A 404 (rather than 403) is uniform across
+        // "missing", "wrong thread", and "cross-tenant" so the endpoint never
+        // confirms the existence of someone else's turn.
+        $turn = $this->turns->find($turnUuid);
+        if (null === $turn
+            || !$turn->getThreadId()->equals($threadUuid)
+            || !$turn->getTenantId()->equals($membership->getTenant()->getId())
+        ) {
+            throw $this->createNotFoundException('Turn not found.');
         }
 
-        // Stub per handoff §4: route exists, cooperative cancel through
-        // the loop is a follow-up. The SPA's reconciliation case 5
-        // ("cancel requested, no terminal event yet") relies on the
-        // SPA holding the cancelling state until the loop appends a
-        // terminal event. For now we accept the request and return
-        // 202; no event is appended.
+        // Cooperative cancel (step-03 chunk D7, decision 4): record the
+        // request in the cross-request TurnCancellation store. The concurrently
+        // streaming ChatRespondLoop polls this on each coalesced flush, stops
+        // draining, and appends the terminal `assistant_turn_cancelled` event
+        // itself. The SPA's reconciliation case 5 ("cancel requested, no
+        // terminal event yet") holds the cancelling state until that event
+        // arrives — this endpoint only sets the signal and returns 202.
+        $this->cancellation->request($turnUuid);
+
         return new JsonResponse([
             'thread_id' => $threadId,
             'turn_id' => $turnId,
