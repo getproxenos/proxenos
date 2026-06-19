@@ -105,6 +105,29 @@ export const renameThread = async (
   if (!res.ok) throw new Error(`rename failed: ${res.status}`)
 }
 
+/**
+ * PUT /api/threads/{id} — idempotently create an empty thread row.
+ *
+ * The shell calls this BEFORE the very first message in a brand-new
+ * client-minted thread so the SPA can re-bootstrap (and pick up a per-thread
+ * Mercure subscriber JWT, OQ5) before the streaming submit starts. Without
+ * it the submit's user_message_submitted event and assistant deltas all
+ * publish to a topic the SPA isn't yet subscribed to and only arrive via
+ * cursor replay AFTER the entire stream completes — the "type → silent
+ * pause → everything appears at once" symptom.
+ *
+ * 201 = freshly created. 200 = already existed (idempotent under page
+ * reloads / retries). Anything else is bubbled up by the throw.
+ */
+export const createThread = async (threadId: string, csrfToken: string): Promise<void> => {
+  const res = await fetch(`/api/threads/${threadId}`, {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: { 'X-CSRF-Token': csrfToken },
+  })
+  if (!res.ok) throw new Error(`create failed: ${res.status}`)
+}
+
 /** POST /api/threads/{id}/archive — soft hide (D2 → 202, decision 10). */
 export const archiveThread = async (threadId: string, csrfToken: string): Promise<void> => {
   const res = await fetch(`/api/threads/${threadId}/archive`, {

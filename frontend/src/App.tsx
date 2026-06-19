@@ -14,6 +14,7 @@ import {
 import { deriveThreadView } from './store/threadView'
 import {
   archiveThread,
+  createThread,
   fetchAllEventsAfter,
   fetchBootstrap,
   fetchMeSettings,
@@ -295,19 +296,25 @@ export function App() {
       if (!part || part.type !== 'text') {
         throw new Error('only text composer parts supported in v0')
       }
+      // First-message gating: a brand-new client-minted thread (decision 9)
+      // is not in the original bootstrap JWT's per-thread subscribe scope
+      // (OQ5 — no wildcard), so any Mercure event published while we POST
+      // the submit would be rejected at the hub. We pre-create the empty
+      // thread row, re-bootstrap to mint a JWT covering it and subscribe,
+      // and only THEN start the streaming submit — the user_message_submitted
+      // event and the assistant deltas now land on a live subscription
+      // instead of being held until the stream completes and arriving
+      // all-at-once via cursor replay. ~100-200ms of extra latency before
+      // the first delta, vs. the entire stream duration of silence before.
+      // Existing threads skip the create + bootstrap and submit directly.
+      const isNewThread = !threadsRef.current.some((t) => t.id === threadId)
+      if (isNewThread) {
+        await createThread(threadId, csrf)
+        await reBootstrap(threadId)
+      }
       await submitMessage(threadId, part.text, csrf)
       // Live deltas + user_message_submitted fold through Mercure.
       // No optimistic insert; event log is the source of truth.
-      //
-      // `submit` runs the loop synchronously and returns once the turn is
-      // recorded, so the thread row + its events exist now. A brand-new
-      // client-minted thread (decision 9) was not in the bootstrap JWT's
-      // per-thread subscribe scope, so its live stream was rejected — re-fetch
-      // bootstrap to mint a JWT covering it, re-subscribe, and replay to
-      // backfill the turn we couldn't see live (OQ5). Existing threads only
-      // need a list refresh to pick up updated_at order + a new auto-title.
-      const isNewThread = !threadsRef.current.some((t) => t.id === threadId)
-      if (isNewThread) await reBootstrap(threadId)
       await refreshThreadList()
     },
     [storeState.currentThreadId, reBootstrap, refreshThreadList],
