@@ -18,6 +18,11 @@ ARG BASE_IMAGE=serversideup/php:8.5-frankenphp
 FROM ${BASE_IMAGE} AS base
 USER root
 RUN install-php-extensions intl pdo_pgsql opcache
+# Project PHP overrides. Filename prefixed `zz-` so it loads AFTER
+# serversideup's own ini files in /usr/local/etc/php/conf.d/ (which are
+# applied alphabetically) — last writer wins, so directives here override
+# the upstream defaults. See docker/php/conf.d/session.ini for the rationale.
+COPY docker/php/conf.d/session.ini /usr/local/etc/php/conf.d/zz-session.ini
 USER www-data
 WORKDIR /var/www/html
 
