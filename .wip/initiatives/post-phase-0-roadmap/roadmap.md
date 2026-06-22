@@ -60,7 +60,7 @@ cancellation-cache pool so cooperative cancel works across PHP processes
 where the cancel request and the streaming turn can land on different
 workers.
 
-### step-04 — Cancellation cache — Redis adapter for multi-worker prod
+### step-04 — Cancellation cache — Redis adapter for multi-worker prod ✅ shipped 2026-06-21
 
 D7 (`5db671b`) wired `CacheTurnCancellation` over PSR-6 `cache.app`,
 which `config/packages/cache.yaml` currently binds to the filesystem
