@@ -51,7 +51,7 @@ stay globally sequential — the lane is a grouping, not a numbering namespace.
 
 # Round 2 — Operational hardening
 
-## Round 2 — Operational hardening
+## Round 2 — Operational hardening ✅ shipped 2026-06-21
 
 The Round 1 spine is daily-driveable on a single PHP worker; this round
 takes the load-bearing operational seams off the dev-friendly stand-ins and
