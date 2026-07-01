@@ -1,5 +1,7 @@
 # Skills as Content Extensions — Design Note
 
+> **Tracked in Linear:** [BDS-43 — Skills as content packages (ADR-015)](https://linear.app/beausimensen/issue/BDS-43) · epic [BDS-35 — external-provider boundary](https://linear.app/beausimensen/issue/BDS-35).
+
 Skills are treated as packaged prompt content that extensions may ship, not as a
 new top-level extension primitive. The host indexes skill declarations, exposes
 available skills to the model, and pins activated skill content to a thread.

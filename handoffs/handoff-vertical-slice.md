@@ -1,5 +1,7 @@
 # Handoff — First Vertical Slice (step 5)
 
+> **Tracked in Linear:** [BDS-44 — Vertical slice: end-to-end against an external Note](https://linear.app/beausimensen/issue/BDS-44) · epic [BDS-35 — external-provider boundary](https://linear.app/beausimensen/issue/BDS-35).
+
 Build the thinnest end-to-end path that exercises the resolved architecture, to surface the
 gaps only code reveals. The design has gotten deep enough that further paper work has
 diminishing returns against the feedback one real slice produces.

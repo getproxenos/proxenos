@@ -1,5 +1,7 @@
 # Schema Language — Note Walkthrough (Result)
 
+> **Tracked in Linear:** [BDS-41 — Note entity](https://linear.app/beausimensen/issue/BDS-41) · epic [BDS-35 — external-provider boundary](https://linear.app/beausimensen/issue/BDS-35). §6 gaps also feed the Gap Batch — see [BDS-33 — hmn tag-modality](https://linear.app/beausimensen/issue/BDS-33) under [BDS-30](https://linear.app/beausimensen/issue/BDS-30).
+
 Worked output of the first Note walkthrough handoff prompt. This takes the working
 positions from the prior schema-language session and pressure-tests them against Hypomnema's `Note` type:
 a full envelope (JSON Schema + presentation hints + routing), a serialized instance with

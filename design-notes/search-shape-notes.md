@@ -1,5 +1,7 @@
 # Search Shape — Design Notes (in progress)
 
+> **Tracked in Linear:** [BDS-52 — Unified search request/response schema](https://linear.app/beausimensen/issue/BDS-52) · epic [BDS-37 — context & prompt machinery](https://linear.app/beausimensen/issue/BDS-37). §5/§7 also feed [BDS-31 — ADR-013 evidence hint](https://linear.app/beausimensen/issue/BDS-31) and [BDS-33 — hmn tag-modality](https://linear.app/beausimensen/issue/BDS-33).
+
 > **Status: in progress / provisional.** This is design work in motion, not a settled ADR
 > and not a finished walkthrough. It exists because the Note walkthrough surfaced that the
 > project has *no defined search shape*, and because the real `hmn` tool gave us concrete

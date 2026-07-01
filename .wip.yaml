@@ -28,7 +28,7 @@ features:
 initiatives:
   - slug: post-phase-0-roadmap
     title: Post-Phase 0 Roadmap
-    status: in-flight
+    status: shipped
     intake: ad-hoc
     brief: .wip/initiatives/post-phase-0-roadmap/BRIEF.md
     roadmap: .wip/initiatives/post-phase-0-roadmap/roadmap.md

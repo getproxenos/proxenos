@@ -1,5 +1,7 @@
 # Operation Registry Walkthrough
 
+> **Tracked in Linear:** [BDS-45 — Operation Registry core](https://linear.app/beausimensen/issue/BDS-45) · epic [BDS-36 — F2 Operation Registry](https://linear.app/beausimensen/issue/BDS-36).
+
 Worked output of the Iris deeper-dive session on the "14 operations" pattern.
 Iris uses a light convention: config keys, service classes, queued jobs, and
 `TokenUsageSource` names. This design keeps the useful naming discipline but

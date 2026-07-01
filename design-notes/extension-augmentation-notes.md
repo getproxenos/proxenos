@@ -1,5 +1,7 @@
 # Extension Augmentation Surface — Design-in-Progress Notes
 
+> **Tracked in Linear:** [BDS-39 — Extension augmentation pipeline](https://linear.app/beausimensen/issue/BDS-39) · epic [BDS-35 — external-provider boundary](https://linear.app/beausimensen/issue/BDS-35).
+
 In-progress design scratchpad, not an ADR. The hook surface by which extensions augment
 host primitives without being part of a primitive's schema.
 

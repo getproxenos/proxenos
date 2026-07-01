@@ -1,5 +1,7 @@
 # Prompt Declaration Walkthrough (Result)
 
+> **Tracked in Linear:** [BDS-48 — ADR-018 full prompt declaration](https://linear.app/beausimensen/issue/BDS-48) · epic [BDS-37 — context & prompt machinery](https://linear.app/beausimensen/issue/BDS-37).
+
 Worked output of the Iris deeper-dive session on system prompt assembly. This uses
 Iris's prompt classes, config registration, cache-breakpoint groups, and
 `RequestContext`-driven rendering as the reference case for applying ADR-013's

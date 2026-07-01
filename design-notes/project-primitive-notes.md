@@ -1,5 +1,7 @@
 # Project Primitive (Context Set) — Design-in-Progress Notes
 
+> **Tracked in Linear:** [BDS-51 — Context Set membership & naming UX](https://linear.app/beausimensen/issue/BDS-51) · primitive [BDS-50](https://linear.app/beausimensen/issue/BDS-50) · epic [BDS-37 — context & prompt machinery](https://linear.app/beausimensen/issue/BDS-37).
+
 In-progress design scratchpad, not an ADR. The primitive's name and schema are settled; this
 parks the threads the walkthrough left open.
 

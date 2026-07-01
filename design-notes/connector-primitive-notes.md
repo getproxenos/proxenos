@@ -1,5 +1,7 @@
 # Connector Primitive — Design Notes
 
+> **Tracked in Linear:** [BDS-38 — ADR-010 connector transport](https://linear.app/beausimensen/issue/BDS-38) · epic [BDS-35 — external-provider boundary](https://linear.app/beausimensen/issue/BDS-35).
+
 > **Status: decided enough for v0 implementation.** This note locks the connector slice of
 > ADR-010: how out-of-process transport connectors enter the host, what they declare, and
 > where identity, delivery, persistence, and model execution boundaries sit.
