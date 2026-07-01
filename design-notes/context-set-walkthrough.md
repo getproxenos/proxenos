@@ -1,5 +1,7 @@
 # Schema Language - Context Set + Vault-Slice Walkthrough (Result)
 
+> **Tracked in Linear:** [BDS-50 — Context Set primitive](https://linear.app/beausimensen/issue/BDS-50) · membership/naming UX [BDS-51](https://linear.app/beausimensen/issue/BDS-51) · epic [BDS-37 — context & prompt machinery](https://linear.app/beausimensen/issue/BDS-37).
+
 Worked output of the second schema-language handoff prompt. This builds on the
 Note walkthrough's envelope and reference triple, then pressure-tests the shape against a
 host-native collection with heterogeneous membership and a Hypomnema vault-slice stored as

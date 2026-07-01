@@ -1,5 +1,7 @@
 # Transclusion — Design-in-Progress Notes
 
+> **Tracked in Linear:** [BDS-49 — Transclusion expansion (summary/full)](https://linear.app/beausimensen/issue/BDS-49) · epic [BDS-37 — context & prompt machinery](https://linear.app/beausimensen/issue/BDS-37).
+
 In-progress design scratchpad, not an ADR. Too thick for a one-line open question, not
 settled enough to formalize. This is the largest deferred piece surfaced by the schema-language
 walkthroughs.

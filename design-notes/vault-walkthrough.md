@@ -1,5 +1,7 @@
 # Schema Language — Vault Walkthrough (Result)
 
+> **Tracked in Linear:** [BDS-40 — Vault entity](https://linear.app/beausimensen/issue/BDS-40) · epic [BDS-35 — external-provider boundary](https://linear.app/beausimensen/issue/BDS-35).
+
 The deferred companion to `note-walkthrough.md`. The Note pass defined the slice of
 Vault that Note's identity depends on (§0 there) and explicitly punted the full envelope
 to its own walkthrough; this is that walkthrough. The same drill: full envelope (JSON

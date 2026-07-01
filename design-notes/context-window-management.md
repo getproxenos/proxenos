@@ -1,5 +1,7 @@
 # Context Window Management Walkthrough
 
+> **Tracked in Linear:** budget planner v0 shipped in step-02; the fuller design here is unscheduled. Related: [BDS-49 — transclusion expansion](https://linear.app/beausimensen/issue/BDS-49) (the `transclusions` budget class) under epic [BDS-37 — context & prompt machinery](https://linear.app/beausimensen/issue/BDS-37).
+
 Worked output of the Iris deeper-dive session on context-window pressure. Iris's
 reference design combines a token budget calculator, bounded history loading,
 protected recent turns, heavier pruning for older tool output, and async

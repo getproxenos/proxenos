@@ -1,5 +1,7 @@
 # Schema Language - Memory / Truth / Summary Walkthrough (Result)
 
+> **Tracked in Linear:** [BDS-42 — Memory / Truth / Summary primitives](https://linear.app/beausimensen/issue/BDS-42) · epic [BDS-35 — external-provider boundary](https://linear.app/beausimensen/issue/BDS-35).
+
 Worked output of the Iris Session 05 handoff. This pressure-tests ADR-013's type
 envelope and universal reference triple against memory-shaped entities: episodic
 `Memory`, durable `Truth`, `TruthConflict`, and chained `ConversationSummary` records.

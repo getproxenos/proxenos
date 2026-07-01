@@ -1,5 +1,7 @@
 # Read/Write Artifacts — Capabilities Walkthrough (Result)
 
+> **Tracked in Linear:** [BDS-53 — Artifact capabilities: provider-agnostic read/write (ADR-017)](https://linear.app/beausimensen/issue/BDS-53) · epic [BDS-37 — context & prompt machinery](https://linear.app/beausimensen/issue/BDS-37).
+
 Worked output of the read/write artifacts handoff. The motivating problem is the
 workflow gap between Claude.ai's read-only project files (edit locally, delete,
 reupload) and Claude Code's "needs a repo" feel: a conversation should be able to
